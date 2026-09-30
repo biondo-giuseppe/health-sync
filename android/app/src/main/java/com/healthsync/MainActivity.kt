@@ -26,6 +26,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var healthManager: HealthConnectManager
     private lateinit var statusText: TextView
+    private lateinit var scheduleButton: Button
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -54,12 +55,17 @@ class MainActivity : AppCompatActivity() {
 
         healthManager = HealthConnectManager(this)
         statusText = findViewById(R.id.statusText)
+        scheduleButton = findViewById(R.id.btnSchedule)
+
         findViewById<ViewGroup>(R.id.contentStack).scheduleLayoutAnimation()
         findViewById<View>(R.id.contentRoot).animate()
             .alpha(1f)
             .setDuration(260)
             .start()
 
+        if (AutoSyncState.isEnabled(this)) {
+            SyncWorker.schedule(this)
+        }
         refreshStatusDisplay()
 
         findViewById<Button>(R.id.btnConnectHealth).setOnClickListener {
@@ -132,7 +138,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        findViewById<Button>(R.id.btnSchedule).setOnClickListener {
+        scheduleButton.setOnClickListener {
             lifecycleScope.launch {
                 if (!healthManager.hasPermissions()) {
                     updateStatus("Connect Health Connect before starting auto sync.")
@@ -143,12 +149,22 @@ class MainActivity : AppCompatActivity() {
                     updateStatus("Connect Google Drive before starting auto sync.")
                     return@launch
                 }
+
+                AutoSyncState.setEnabled(this@MainActivity, true)
                 SyncWorker.schedule(this@MainActivity)
                 SyncWorker.runOnce(this@MainActivity)
                 requestNotificationPermissionIfNeeded()
                 requestBatteryOptimizationExemption()
-                updateStatus("Auto sync active. Syncing once now, then Android will run background sync about every 15 min.")
+                refreshStatusDisplay()
+                updateStatus("Auto sync active. It will be restored automatically after app or phone restarts.")
             }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::healthManager.isInitialized && ::statusText.isInitialized) {
+            refreshStatusDisplay()
         }
     }
 
@@ -175,14 +191,24 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshStatusDisplay() {
         val hasDriveFile = DriveClient.hasFile(this)
+        val autoSyncEnabled = AutoSyncState.isEnabled(this)
+
+        scheduleButton.text = if (autoSyncEnabled) "Auto Sync Active" else "Start Auto Sync"
+        scheduleButton.isEnabled = !autoSyncEnabled
+
         lifecycleScope.launch {
             val healthAvailability = healthManager.availability()
             val hasHealth = runCatching { healthManager.hasPermissions() }.getOrDefault(false)
             statusText.text = buildString {
                 appendLine("Health Connect: ${healthStatusText(healthAvailability, hasHealth)}")
                 appendLine("Google Drive: ${if (hasDriveFile) "File connected" else "Tap button below"}")
+                appendLine("Auto Sync: ${if (autoSyncEnabled) "Active" else "Off"}")
                 if (hasHealth && hasDriveFile) {
-                    appendLine("\nReady to sync. Tap 'Sync Now' or 'Start Auto Sync'.")
+                    if (autoSyncEnabled) {
+                        appendLine("\nAutomatic sync is enabled and will survive phone restarts.")
+                    } else {
+                        appendLine("\nReady to sync. Tap 'Sync Now' or 'Start Auto Sync'.")
+                    }
                 }
             }
         }
