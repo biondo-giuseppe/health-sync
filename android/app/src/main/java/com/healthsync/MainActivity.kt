@@ -20,11 +20,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.health.connect.client.PermissionController
 import androidx.lifecycle.lifecycleScope
-import androidx.work.WorkInfo
 import androidx.work.WorkManager
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.time.ZonedDateTime
 
 class MainActivity : AppCompatActivity() {
@@ -68,7 +66,10 @@ class MainActivity : AppCompatActivity() {
         statusText = findViewById(R.id.statusText)
         scheduleButton = findViewById(R.id.btnSchedule)
         intervalSpinner = findViewById(R.id.syncIntervalSpinner)
-        findViewById<TextView>(R.id.versionText).text = "Version ${BuildConfig.VERSION_NAME}"
+        val versionName = runCatching {
+            packageManager.getPackageInfo(packageName, 0).versionName
+        }.getOrNull() ?: "1.1.0"
+        findViewById<TextView>(R.id.versionText).text = "Version $versionName"
 
         findViewById<ViewGroup>(R.id.contentStack).scheduleLayoutAnimation()
         findViewById<View>(R.id.contentRoot).animate().alpha(1f).setDuration(260).start()
@@ -126,7 +127,7 @@ class MainActivity : AppCompatActivity() {
                 updateStatus("Syncing to Google Drive...")
                 try {
                     val snapshot = healthManager.readTodaySnapshot()
-                    withContext(Dispatchers.IO) {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                         DriveClient.syncSnapshot(applicationContext, snapshot)
                     }
                     AutoSyncState.recordSuccess(this@MainActivity, ZonedDateTime.now().toString())
@@ -243,15 +244,13 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val healthAvailability = healthManager.availability()
             val hasHealth = runCatching { healthManager.hasPermissions() }.getOrDefault(false)
-            val workerState = withContext(Dispatchers.IO) {
-                runCatching {
-                    WorkManager.getInstance(this@MainActivity)
-                        .getWorkInfosForUniqueWork(SyncWorker.WORK_NAME)
-                        .get()
-                        .firstOrNull { !it.state.isFinished }
-                        ?.state
-                }.getOrNull()
-            }
+            val workerState = runCatching {
+                WorkManager.getInstance(this@MainActivity)
+                    .getWorkInfosForUniqueWorkFlow(SyncWorker.WORK_NAME)
+                    .first()
+                    .firstOrNull { !it.state.isFinished }
+                    ?.state
+            }.getOrNull()
 
             statusText.text = buildString {
                 appendLine("Health Connect: ${healthStatusText(healthAvailability, hasHealth)}")
