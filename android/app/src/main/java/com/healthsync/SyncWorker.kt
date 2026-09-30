@@ -9,6 +9,7 @@ import androidx.core.app.NotificationCompat
 import androidx.work.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.time.ZonedDateTime
 import java.util.concurrent.TimeUnit
 
 class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
@@ -16,17 +17,25 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
     override suspend fun doWork(): Result {
         setForeground(createForegroundInfo())
 
-        val manager = HealthConnectManager(applicationContext)
+        val manager = PreferredHealthConnectManager(applicationContext)
 
-        if (!manager.hasPermissions()) return Result.failure()
+        if (!manager.hasPermissions()) {
+            AutoSyncState.recordError(applicationContext, "Health Connect permissions missing")
+            return Result.failure()
+        }
 
         return try {
             val snapshot = manager.readTodaySnapshot()
             withContext(Dispatchers.IO) {
                 DriveClient.syncSnapshot(applicationContext, snapshot)
             }
+            AutoSyncState.recordSuccess(applicationContext, ZonedDateTime.now().toString())
             Result.success()
         } catch (e: Exception) {
+            AutoSyncState.recordError(
+                applicationContext,
+                e.message ?: e.javaClass.simpleName
+            )
             if (runAttemptCount < 3) Result.retry() else Result.failure()
         }
     }
@@ -68,25 +77,31 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
     }
 
     companion object {
-        private const val WORK_NAME = "health_sync"
+        const val WORK_NAME = "health_sync"
         private const val CHANNEL_ID = "health_sync_background"
         private const val NOTIFICATION_ID = 1001
 
-        fun schedule(context: Context) {
+        fun schedule(context: Context, intervalMinutes: Long = AutoSyncState.intervalMinutes(context)) {
+            require(intervalMinutes in AutoSyncState.ALLOWED_INTERVALS)
+
             val constraints = Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build()
 
-            val request = PeriodicWorkRequestBuilder<SyncWorker>(15, TimeUnit.MINUTES)
+            val request = PeriodicWorkRequestBuilder<SyncWorker>(intervalMinutes, TimeUnit.MINUTES)
                 .setConstraints(constraints)
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES)
                 .build()
 
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(
                 WORK_NAME,
-                ExistingPeriodicWorkPolicy.KEEP,
+                ExistingPeriodicWorkPolicy.UPDATE,
                 request
             )
+        }
+
+        fun stop(context: Context) {
+            WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
         }
 
         fun runOnce(context: Context) {
