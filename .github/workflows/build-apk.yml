@@ -1,4 +1,4 @@
-name: Build APK
+name: Android CI
 
 on:
   push:
@@ -30,28 +30,13 @@ jobs:
         with:
           gradle-version: '8.6'
 
-      - name: Prepare stable signing key
-        env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-        run: |
-          test -n "$ANDROID_KEYSTORE_BASE64" || (echo "Missing ANDROID_KEYSTORE_BASE64 secret" && exit 1)
-          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/healthsync-stable-keystore.p12"
-
-      - name: Build signed release APK
+      - name: Compile app
         working-directory: android
-        env:
-          HEALTHSYNC_KEYSTORE_PATH: ${{ runner.temp }}/healthsync-stable-keystore.p12
-          HEALTHSYNC_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          HEALTHSYNC_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          HEALTHSYNC_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: gradle assembleRelease
+        run: gradle assembleDebug
 
-      - name: Prepare APK asset
-        run: cp android/app/build/outputs/apk/release/app-release.apk HealthSync.apk
+      - name: Verify build
+        run: test -f android/app/build/outputs/apk/debug/app-debug.apk
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: HealthSync
-          path: HealthSync.apk
-          retention-days: 30
+# CI intentionally does not upload APK artifacts.
+# The currently installed working build is kept on the device; future public
+# APK publication will be re-enabled only after permanent signing is configured.
