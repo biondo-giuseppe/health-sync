@@ -31,6 +31,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var statusText: TextView
     private lateinit var scheduleButton: Button
     private lateinit var intervalSpinner: Spinner
+    private var staleRecoveryRequestedThisResume = false
 
     private val intervalOptions = listOf(
         "15 minutes" to 15L,
@@ -179,7 +180,22 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (::healthManager.isInitialized && ::statusText.isInitialized) refreshStatusDisplay()
+        staleRecoveryRequestedThisResume = false
+        if (::healthManager.isInitialized && ::statusText.isInitialized) {
+            recoverStaleSyncIfNeeded()
+            refreshStatusDisplay()
+        }
+    }
+
+    private fun recoverStaleSyncIfNeeded() {
+        if (staleRecoveryRequestedThisResume) return
+        if (!AutoSyncState.isEnabled(this)) return
+        if (!DriveClient.hasFile(this)) return
+        if (!AutoSyncState.isStale(this)) return
+
+        staleRecoveryRequestedThisResume = true
+        SyncWorker.schedule(this, AutoSyncState.intervalMinutes(this))
+        SyncWorker.runOnce(this)
     }
 
     @Deprecated("Uses legacy activity result API for document picker")
@@ -237,6 +253,8 @@ class MainActivity : AppCompatActivity() {
         val hasDriveFile = DriveClient.hasFile(this)
         val autoSyncEnabled = AutoSyncState.isEnabled(this)
         val interval = AutoSyncState.intervalMinutes(this)
+        val stale = AutoSyncState.isStale(this)
+        val age = AutoSyncState.minutesSinceLastSuccess(this)
 
         scheduleButton.text = if (autoSyncEnabled) "Stop Auto Sync" else "Start Auto Sync"
         intervalSpinner.isEnabled = true
@@ -258,6 +276,8 @@ class MainActivity : AppCompatActivity() {
                 appendLine("Primary wearable: Zepp/Amazfit")
                 appendLine("Auto Sync: ${if (autoSyncEnabled) "Every ${intervalLabel(interval)}" else "Off"}")
                 appendLine("Worker: ${workerState?.name ?: if (autoSyncEnabled) "Pending" else "Off"}")
+                if (autoSyncEnabled && stale) appendLine("Sync status: stale — recovery requested")
+                else if (autoSyncEnabled && age != null) appendLine("Sync status: OK · ${age} min ago")
                 AutoSyncState.lastSuccess(this@MainActivity)?.let { appendLine("Last success: $it") }
                 AutoSyncState.lastError(this@MainActivity)?.let { appendLine("Last error: $it") }
             }
