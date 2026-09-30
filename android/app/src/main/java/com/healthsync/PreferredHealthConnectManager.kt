@@ -23,10 +23,12 @@ import androidx.health.connect.client.records.Vo2MaxRecord
 import androidx.health.connect.client.records.WeightRecord
 import androidx.health.connect.client.records.metadata.DataOrigin
 import androidx.health.connect.client.request.AggregateRequest
+import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.ZonedDateTime
 
 class PreferredHealthConnectManager(private val context: Context) {
     private val delegate = HealthConnectManager(context)
@@ -79,7 +81,10 @@ class PreferredHealthConnectManager(private val context: Context) {
     suspend fun readTodaySnapshot(): HealthSnapshot {
         val baseline = delegate.readTodaySnapshot()
         val now = Instant.now()
-        val range = TimeRangeFilter.between(LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant(), now)
+        val zone = ZoneId.systemDefault()
+        val range = TimeRangeFilter.between(LocalDate.now().atStartOfDay(zone).toInstant(), now)
+        val sleepRange = TimeRangeFilter.between(now.minusSeconds(86400), now)
+
         val zepp = runCatching {
             client.aggregate(
                 AggregateRequest(
@@ -99,18 +104,18 @@ class PreferredHealthConnectManager(private val context: Context) {
         }.getOrNull()
 
         val usefulNames = usefulRecordTypes.map { it.java.simpleName }.toSet()
-        val filteredRaw = baseline.rawRecords.filterKeys { it in usefulNames }
-        val filteredErrors = baseline.extractionErrors.filterKeys { it in usefulNames }
-        val zeppSteps = zepp?.get(StepsRecord.COUNT_TOTAL)
-
         val common = baseline.copy(
             grantedPermissions = client.permissionController.getGrantedPermissions().filter { it in permissions }.sorted(),
             requestedRecordTypes = usefulNames.sorted(),
-            rawRecords = filteredRaw,
-            extractionErrors = filteredErrors,
+            rawRecords = baseline.rawRecords.filterKeys { it in usefulNames },
+            extractionErrors = baseline.extractionErrors.filterKeys { it in usefulNames },
         )
 
+        val zeppSteps = zepp?.get(StepsRecord.COUNT_TOTAL)
         if (zeppSteps == null || zeppSteps <= 0L) return common
+
+        val zeppSleep = runCatching { readZeppSleep(sleepRange, zone) }.getOrNull()
+        val zeppHrv = runCatching { readZeppHrv(sleepRange) }.getOrNull()
 
         return common.copy(
             steps = zeppSteps,
@@ -120,9 +125,83 @@ class PreferredHealthConnectManager(private val context: Context) {
             heartRateResting = zepp[RestingHeartRateRecord.BPM_AVG]?.toInt() ?: common.heartRateResting,
             distanceMeters = zepp[DistanceRecord.DISTANCE_TOTAL]?.inMeters?.toLong() ?: common.distanceMeters,
             activeMinutes = zepp[ExerciseSessionRecord.EXERCISE_DURATION_TOTAL]?.toMinutes() ?: common.activeMinutes,
+            sleepDurationMinutes = zeppSleep?.durationMinutes ?: common.sleepDurationMinutes,
+            sleepStart = zeppSleep?.startLocal ?: common.sleepStart,
+            sleepEnd = zeppSleep?.endLocal ?: common.sleepEnd,
+            sleepStartUtc = zeppSleep?.startUtc ?: common.sleepStartUtc,
+            sleepEndUtc = zeppSleep?.endUtc ?: common.sleepEndUtc,
+            sleepDate = zeppSleep?.sleepDate ?: common.sleepDate,
+            sleepStages = zeppSleep?.stages ?: common.sleepStages,
+            hrvRmssdAvgMs = zeppHrv?.average ?: common.hrvRmssdAvgMs,
+            hrvRmssdMedianMs = zeppHrv?.median ?: common.hrvRmssdMedianMs,
+            hrvRmssdMinMs = zeppHrv?.min ?: common.hrvRmssdMinMs,
+            hrvRmssdMaxMs = zeppHrv?.max ?: common.hrvRmssdMaxMs,
+            hrvRmssdSampleCount = zeppHrv?.count ?: common.hrvRmssdSampleCount,
             selectedSummaryOrigin = ZEPP_PACKAGE,
             summaryDataOrigins = listOf(ZEPP_PACKAGE),
         )
+    }
+
+    private data class SleepPick(
+        val durationMinutes: Long,
+        val startLocal: String,
+        val endLocal: String,
+        val startUtc: String,
+        val endUtc: String,
+        val sleepDate: String,
+        val stages: Map<String, Long>?,
+    )
+
+    private suspend fun readZeppSleep(range: TimeRangeFilter, zone: ZoneId): SleepPick? {
+        val records = client.readRecords(
+            ReadRecordsRequest(
+                recordType = SleepSessionRecord::class,
+                timeRangeFilter = range,
+                dataOriginFilter = setOf(DataOrigin(ZEPP_PACKAGE)),
+                ascendingOrder = true,
+            )
+        ).records
+        val session = records.maxByOrNull { it.endTime } ?: return null
+        val stages = session.stages.groupBy { it.stage }.mapValues { (_, values) ->
+            values.sumOf { it.endTime.toEpochMilli() - it.startTime.toEpochMilli() } / 60000
+        }.mapKeys { (stage, _) ->
+            when (stage) {
+                SleepSessionRecord.STAGE_TYPE_DEEP -> "deep"
+                SleepSessionRecord.STAGE_TYPE_LIGHT -> "light"
+                SleepSessionRecord.STAGE_TYPE_REM -> "rem"
+                SleepSessionRecord.STAGE_TYPE_AWAKE -> "awake"
+                else -> "unknown"
+            }
+        }
+        val startLocal = ZonedDateTime.ofInstant(session.startTime, zone)
+        val endLocal = ZonedDateTime.ofInstant(session.endTime, zone)
+        return SleepPick(
+            durationMinutes = (session.endTime.toEpochMilli() - session.startTime.toEpochMilli()) / 60000,
+            startLocal = startLocal.toString(),
+            endLocal = endLocal.toString(),
+            startUtc = session.startTime.toString(),
+            endUtc = session.endTime.toString(),
+            sleepDate = endLocal.toLocalDate().toString(),
+            stages = stages.takeIf { it.isNotEmpty() },
+        )
+    }
+
+    private data class HrvPick(val average: Double, val median: Double, val min: Double, val max: Double, val count: Int)
+
+    private suspend fun readZeppHrv(range: TimeRangeFilter): HrvPick? {
+        val values = client.readRecords(
+            ReadRecordsRequest(
+                recordType = HeartRateVariabilityRmssdRecord::class,
+                timeRangeFilter = range,
+                dataOriginFilter = setOf(DataOrigin(ZEPP_PACKAGE)),
+                ascendingOrder = true,
+            )
+        ).records.map { it.heartRateVariabilityMillis }.sorted()
+        if (values.isEmpty()) return null
+        val middle = values.size / 2
+        val median = if (values.size % 2 == 0) (values[middle - 1] + values[middle]) / 2.0 else values[middle]
+        fun round1(value: Double) = kotlin.math.round(value * 10.0) / 10.0
+        return HrvPick(round1(values.average()), round1(median), round1(values.first()), round1(values.last()), values.size)
     }
 
     companion object {
