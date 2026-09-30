@@ -1,6 +1,8 @@
 package com.healthsync
 
 import android.content.Context
+import java.time.Duration
+import java.time.ZonedDateTime
 
 object AutoSyncState {
     private const val PREFS = "health_sync_settings"
@@ -48,4 +50,21 @@ object AutoSyncState {
     fun lastSuccess(context: Context): String? = prefs(context).getString(KEY_LAST_SUCCESS, null)
 
     fun lastError(context: Context): String? = prefs(context).getString(KEY_LAST_ERROR, null)
+
+    fun minutesSinceLastSuccess(context: Context): Long? {
+        val value = lastSuccess(context) ?: return null
+        return runCatching {
+            val then = ZonedDateTime.parse(value)
+            Duration.between(then, ZonedDateTime.now()).toMinutes().coerceAtLeast(0)
+        }.getOrNull()
+    }
+
+    fun staleThresholdMinutes(context: Context): Long =
+        maxOf(45L, intervalMinutes(context) * 3L)
+
+    fun isStale(context: Context): Boolean {
+        if (!isEnabled(context)) return false
+        val age = minutesSinceLastSuccess(context) ?: return true
+        return age >= staleThresholdMinutes(context)
+    }
 }
