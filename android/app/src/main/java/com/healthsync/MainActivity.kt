@@ -12,21 +12,34 @@ import android.provider.Settings
 import android.view.View
 import android.view.ViewGroup
 import android.view.animation.AnimationUtils
+import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.Spinner
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.health.connect.client.PermissionController
 import androidx.lifecycle.lifecycleScope
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.ZonedDateTime
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var healthManager: HealthConnectManager
+    private lateinit var healthManager: PreferredHealthConnectManager
     private lateinit var statusText: TextView
     private lateinit var scheduleButton: Button
+    private lateinit var intervalSpinner: Spinner
+
+    private val intervalOptions = listOf(
+        "15 minutes" to 15L,
+        "30 minutes" to 30L,
+        "1 hour" to 60L,
+        "8 hours" to 480L,
+    )
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -39,9 +52,7 @@ class MainActivity : AppCompatActivity() {
             if (healthManager.hasPermissions()) {
                 updateStatus("Health Connect connected.")
             } else if (granted.isNotEmpty()) {
-                updateStatus(
-                    "Health Connect partially connected. Some health fields may show blank."
-                )
+                updateStatus("Health Connect partially connected. Some health fields may show blank.")
             } else {
                 updateStatus("Health Connect permissions are still off. Opening Health Connect settings...")
                 openHealthConnectPermissions()
@@ -53,18 +64,19 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        healthManager = HealthConnectManager(this)
+        healthManager = PreferredHealthConnectManager(this)
         statusText = findViewById(R.id.statusText)
         scheduleButton = findViewById(R.id.btnSchedule)
+        intervalSpinner = findViewById(R.id.syncIntervalSpinner)
+        findViewById<TextView>(R.id.versionText).text = "Version ${BuildConfig.VERSION_NAME}"
 
         findViewById<ViewGroup>(R.id.contentStack).scheduleLayoutAnimation()
-        findViewById<View>(R.id.contentRoot).animate()
-            .alpha(1f)
-            .setDuration(260)
-            .start()
+        findViewById<View>(R.id.contentRoot).animate().alpha(1f).setDuration(260).start()
+
+        configureIntervalSpinner()
 
         if (AutoSyncState.isEnabled(this)) {
-            SyncWorker.schedule(this)
+            SyncWorker.schedule(this, AutoSyncState.intervalMinutes(this))
         }
         refreshStatusDisplay()
 
@@ -79,18 +91,13 @@ class MainActivity : AppCompatActivity() {
                                 updateStatus("Health Connect already connected.")
                             }
                         } catch (e: Exception) {
-                            updateStatus("Health Connect failed: ${e.message ?: e.javaClass.simpleName}")
+                            updateStatus("Health Connect connection failed.")
                         }
                     }
-                    HealthConnectManager.Availability.INSTALL_OR_UPDATE_REQUIRED -> {
-                        openHealthConnectInstall()
-                    }
-                    HealthConnectManager.Availability.UNAVAILABLE -> {
-                        updateStatus(
-                            "Health Connect is not available on this phone. " +
-                            "Update Android and Google Play services, then try again."
-                        )
-                    }
+                    HealthConnectManager.Availability.INSTALL_OR_UPDATE_REQUIRED -> openHealthConnectInstall()
+                    HealthConnectManager.Availability.UNAVAILABLE -> updateStatus(
+                        "Health Connect is not available on this phone. Update Android and Google Play services, then try again."
+                    )
                 }
             }
         }
@@ -108,12 +115,12 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnSyncNow).setOnClickListener {
             lifecycleScope.launch {
                 if (!healthManager.hasPermissions()) {
-                    updateStatus("Step 1: Connect Health Connect first. Opening Health Connect settings...")
+                    updateStatus("Connect Health Connect first.")
                     openHealthConnectPermissions()
                     return@launch
                 }
                 if (!DriveClient.hasFile(this@MainActivity)) {
-                    updateStatus("Step 2: Connect Google Drive first.")
+                    updateStatus("Connect Google Drive first.")
                     return@launch
                 }
                 updateStatus("Syncing to Google Drive...")
@@ -122,24 +129,31 @@ class MainActivity : AppCompatActivity() {
                     withContext(Dispatchers.IO) {
                         DriveClient.syncSnapshot(applicationContext, snapshot)
                     }
-                    val rawRecordCount = snapshot.rawRecords.values.sumOf { it.size }
-                    val rawTypeCount = snapshot.rawRecords.count { it.value.isNotEmpty() }
+                    AutoSyncState.recordSuccess(this@MainActivity, ZonedDateTime.now().toString())
                     updateStatus(
                         "Synced to Drive!\n" +
-                        "Steps: ${snapshot.steps ?: "--"}\n" +
-                        "HR: ${snapshot.heartRateAvg ?: "--"} bpm\n" +
-                        "Calories: ${snapshot.caloriesTotal ?: "--"} kcal\n" +
-                        "Sleep: ${snapshot.sleepDurationMinutes?.let { "${it / 60}h ${it % 60}m" } ?: "--"}\n" +
-                        "Raw records: $rawRecordCount across $rawTypeCount types"
+                            "Primary source: ${sourceLabel(snapshot.selectedSummaryOrigin)}\n" +
+                            "Steps: ${snapshot.steps ?: "--"}\n" +
+                            "HR: ${snapshot.heartRateAvg ?: "--"} bpm\n" +
+                            "Calories: ${snapshot.caloriesTotal ?: "--"} kcal\n" +
+                            "Sleep: ${snapshot.sleepDurationMinutes?.let { "${it / 60}h ${it % 60}m" } ?: "--"}"
                     )
                 } catch (e: Exception) {
-                    updateStatus("Sync failed: ${e.message}")
+                    AutoSyncState.recordError(this@MainActivity, e.message ?: e.javaClass.simpleName)
+                    updateStatus("Sync failed. Check connections and try again.")
                 }
             }
         }
 
         scheduleButton.setOnClickListener {
             lifecycleScope.launch {
+                if (AutoSyncState.isEnabled(this@MainActivity)) {
+                    AutoSyncState.setEnabled(this@MainActivity, false)
+                    SyncWorker.stop(this@MainActivity)
+                    refreshStatusDisplay()
+                    return@launch
+                }
+
                 if (!healthManager.hasPermissions()) {
                     updateStatus("Connect Health Connect before starting auto sync.")
                     openHealthConnectPermissions()
@@ -150,22 +164,21 @@ class MainActivity : AppCompatActivity() {
                     return@launch
                 }
 
+                val minutes = selectedIntervalMinutes()
+                AutoSyncState.setIntervalMinutes(this@MainActivity, minutes)
                 AutoSyncState.setEnabled(this@MainActivity, true)
-                SyncWorker.schedule(this@MainActivity)
+                SyncWorker.schedule(this@MainActivity, minutes)
                 SyncWorker.runOnce(this@MainActivity)
                 requestNotificationPermissionIfNeeded()
                 requestBatteryOptimizationExemption()
                 refreshStatusDisplay()
-                updateStatus("Auto sync active. It will be restored automatically after app or phone restarts.")
             }
         }
     }
 
     override fun onResume() {
         super.onResume()
-        if (::healthManager.isInitialized && ::statusText.isInitialized) {
-            refreshStatusDisplay()
-        }
+        if (::healthManager.isInitialized && ::statusText.isInitialized) refreshStatusDisplay()
     }
 
     @Deprecated("Uses legacy activity result API for document picker")
@@ -184,6 +197,36 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun configureIntervalSpinner() {
+        val adapter = ArrayAdapter(
+            this,
+            android.R.layout.simple_spinner_item,
+            intervalOptions.map { it.first }
+        )
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        intervalSpinner.adapter = adapter
+
+        val saved = AutoSyncState.intervalMinutes(this)
+        intervalSpinner.setSelection(intervalOptions.indexOfFirst { it.second == saved }.coerceAtLeast(0))
+
+        intervalSpinner.setOnItemSelectedListener(object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val minutes = intervalOptions[position].second
+                AutoSyncState.setIntervalMinutes(this@MainActivity, minutes)
+                if (AutoSyncState.isEnabled(this@MainActivity)) {
+                    SyncWorker.schedule(this@MainActivity, minutes)
+                    refreshStatusDisplay()
+                }
+            }
+
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
+        })
+    }
+
+    private fun selectedIntervalMinutes(): Long =
+        intervalOptions.getOrNull(intervalSpinner.selectedItemPosition)?.second
+            ?: AutoSyncState.DEFAULT_INTERVAL_MINUTES
+
     private fun updateStatus(message: String) {
         statusText.text = message
         statusText.startAnimation(AnimationUtils.loadAnimation(this, R.anim.fade_slide_in))
@@ -192,26 +235,46 @@ class MainActivity : AppCompatActivity() {
     private fun refreshStatusDisplay() {
         val hasDriveFile = DriveClient.hasFile(this)
         val autoSyncEnabled = AutoSyncState.isEnabled(this)
+        val interval = AutoSyncState.intervalMinutes(this)
 
-        scheduleButton.text = if (autoSyncEnabled) "Auto Sync Active" else "Start Auto Sync"
-        scheduleButton.isEnabled = !autoSyncEnabled
+        scheduleButton.text = if (autoSyncEnabled) "Stop Auto Sync" else "Start Auto Sync"
+        intervalSpinner.isEnabled = true
 
         lifecycleScope.launch {
             val healthAvailability = healthManager.availability()
             val hasHealth = runCatching { healthManager.hasPermissions() }.getOrDefault(false)
+            val workerState = withContext(Dispatchers.IO) {
+                runCatching {
+                    WorkManager.getInstance(this@MainActivity)
+                        .getWorkInfosForUniqueWork(SyncWorker.WORK_NAME)
+                        .get()
+                        .firstOrNull { !it.state.isFinished }
+                        ?.state
+                }.getOrNull()
+            }
+
             statusText.text = buildString {
                 appendLine("Health Connect: ${healthStatusText(healthAvailability, hasHealth)}")
                 appendLine("Google Drive: ${if (hasDriveFile) "File connected" else "Tap button below"}")
-                appendLine("Auto Sync: ${if (autoSyncEnabled) "Active" else "Off"}")
-                if (hasHealth && hasDriveFile) {
-                    if (autoSyncEnabled) {
-                        appendLine("\nAutomatic sync is enabled and will survive phone restarts.")
-                    } else {
-                        appendLine("\nReady to sync. Tap 'Sync Now' or 'Start Auto Sync'.")
-                    }
-                }
+                appendLine("Primary wearable: Zepp/Amazfit")
+                appendLine("Auto Sync: ${if (autoSyncEnabled) "Every ${intervalLabel(interval)}" else "Off"}")
+                appendLine("Worker: ${workerState?.name ?: if (autoSyncEnabled) "Pending" else "Off"}")
+                AutoSyncState.lastSuccess(this@MainActivity)?.let { appendLine("Last success: $it") }
+                AutoSyncState.lastError(this@MainActivity)?.let { appendLine("Last error: $it") }
             }
         }
+    }
+
+    private fun intervalLabel(minutes: Long): String = when (minutes) {
+        60L -> "1 hour"
+        480L -> "8 hours"
+        else -> "$minutes minutes"
+    }
+
+    private fun sourceLabel(origin: String?): String = when (origin) {
+        PreferredHealthConnectManager.ZEPP_PACKAGE -> "Zepp/Amazfit"
+        null -> "Health Connect fallback"
+        else -> "Health Connect fallback"
     }
 
     private fun openHealthConnectInstall() {
@@ -229,7 +292,7 @@ class MainActivity : AppCompatActivity() {
         } catch (e: ActivityNotFoundException) {
             updateStatus(
                 "Open Health Connect settings manually:\n" +
-                "Settings > Security & privacy > Privacy > Health Connect > App permissions > Health Sync"
+                    "Settings > Security & privacy > Privacy > Health Connect > App permissions > Health Sync"
             )
         }
     }
@@ -241,9 +304,7 @@ class MainActivity : AppCompatActivity() {
         return when {
             hasPermissions -> "Connected"
             availability == HealthConnectManager.Availability.AVAILABLE -> "Tap button below"
-            availability == HealthConnectManager.Availability.INSTALL_OR_UPDATE_REQUIRED -> {
-                "Install or update required"
-            }
+            availability == HealthConnectManager.Availability.INSTALL_OR_UPDATE_REQUIRED -> "Install or update required"
             else -> "Unavailable on this phone"
         }
     }
