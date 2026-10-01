@@ -2,7 +2,7 @@ name: Android CI
 
 on:
   push:
-    branches: [main, fix/reliable-autosync-direct-supabase]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -30,16 +30,16 @@ jobs:
         with:
           gradle-version: '8.6'
 
-      - name: Compile app
+      - name: Compile unsigned release APK
         working-directory: android
-        run: gradle assembleDebug
+        run: gradle assembleRelease
 
       - name: Verify build
-        run: test -f android/app/build/outputs/apk/debug/app-debug.apk
+        run: test -f android/app/build/outputs/apk/release/app-release-unsigned.apk
 
-      - name: Upload test APK
+      - name: Upload unsigned APK
         uses: actions/upload-artifact@v4
         with:
-          name: HealthSync-1.1.2-autosync-test
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: HealthSync-1.1.3-unsigned
+          path: android/app/build/outputs/apk/release/app-release-unsigned.apk
           retention-days: 1
