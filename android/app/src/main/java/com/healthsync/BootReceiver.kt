@@ -11,5 +11,6 @@ class BootReceiver : BroadcastReceiver() {
         if (!AutoSyncState.isEnabled(context)) return
 
         SyncWorker.schedule(context, AutoSyncState.intervalMinutes(context))
+        SyncWorker.runOnce(context)
     }
 }
