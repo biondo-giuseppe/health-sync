@@ -37,6 +37,9 @@ jobs:
       - name: Verify build
         run: test -f android/app/build/outputs/apk/debug/app-debug.apk
 
-# CI intentionally does not upload APK artifacts.
-# The currently installed working build is kept on the device; future public
-# APK publication will be re-enabled only after permanent signing is configured.
+      - name: Upload test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: HealthSync-1.1.1
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 1
