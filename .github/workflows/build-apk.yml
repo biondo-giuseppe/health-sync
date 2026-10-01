@@ -2,7 +2,7 @@ name: Android CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, fix/reliable-autosync-direct-supabase]
   workflow_dispatch:
 
 jobs:
@@ -40,6 +40,6 @@ jobs:
       - name: Upload test APK
         uses: actions/upload-artifact@v4
         with:
-          name: HealthSync-1.1.1
+          name: HealthSync-1.1.2-autosync-test
           path: android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 1
