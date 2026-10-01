@@ -26,9 +26,17 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
 
         return try {
             val snapshot = manager.readTodaySnapshot()
+            val compactSnapshot = SyncPayload.compactForBackground(snapshot)
+
             withContext(Dispatchers.IO) {
-                DriveClient.syncSnapshot(applicationContext, snapshot)
+                DriveClient.syncSnapshot(applicationContext, compactSnapshot)
             }
+
+            DriveWriteVerifier.awaitRecordedAt(
+                applicationContext,
+                compactSnapshot.recordedAt
+            )
+
             AutoSyncState.recordSuccess(applicationContext, ZonedDateTime.now().toString())
             Result.success()
         } catch (e: Exception) {
