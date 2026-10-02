@@ -19,7 +19,7 @@ class SyncWatchdogReceiver : BroadcastReceiver() {
 
     companion object {
         private const val REQUEST_CODE = 41015
-        private const val WATCHDOG_INTERVAL_MS = 60L * 60L * 1000L
+        private const val WATCHDOG_INTERVAL_MS = 30L * 60L * 1000L
 
         fun schedule(context: Context) {
             if (!AutoSyncState.isEnabled(context)) return
