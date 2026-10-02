@@ -51,6 +51,7 @@ data class HealthSnapshot(
     val allSourcesDistanceMeters: Long?,
     val allSourcesCaloriesTotal: Long?,
     val zeppStepsLastModifiedAt: String?,
+    val zeppStepsLatestEndAt: String?,
     val rawRecords: Map<String, List<Map<String, Any?>>>,
     val extractionErrors: Map<String, String>
 )
@@ -201,6 +202,7 @@ class HealthConnectManager(private val context: Context) {
             allSourcesDistanceMeters = summary?.allSourcesDistanceMeters,
             allSourcesCaloriesTotal = summary?.allSourcesCaloriesTotal,
             zeppStepsLastModifiedAt = null,
+            zeppStepsLatestEndAt = null,
             rawRecords = export.records,
             extractionErrors = export.errors
         )
