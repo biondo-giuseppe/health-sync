@@ -137,7 +137,10 @@ class HealthConnectManager(private val context: Context) {
         return grantedPermissions().containsAll(requiredPermissions)
     }
 
-    suspend fun readTodaySnapshot(): HealthSnapshot {
+    suspend fun readTodaySnapshot(
+        rawRecordTypeNames: Set<String>? = null,
+        exportHistoryDays: Long = EXPORT_HISTORY_DAYS,
+    ): HealthSnapshot {
         check(availability() == Availability.AVAILABLE) {
             "Health Connect is not available. Install or update Health Connect first."
         }
@@ -146,7 +149,7 @@ class HealthConnectManager(private val context: Context) {
         val startOfDay = LocalDate.now().atStartOfDay(zone).toInstant()
         val now = Instant.now()
         val todayRange = TimeRangeFilter.between(startOfDay, now)
-        val exportStart = now.minusSeconds(EXPORT_HISTORY_DAYS * 24 * 60 * 60)
+        val exportStart = now.minusSeconds(exportHistoryDays * 24 * 60 * 60)
         val exportRange = TimeRangeFilter.between(exportStart, now)
 
         // Sleep: look back 24h to catch last night
@@ -158,7 +161,10 @@ class HealthConnectManager(private val context: Context) {
         val sleep = readOptional { readSleep(sleepRange) }
         val hrv = readOptional { readHrvStats(sleepRange) }
         val summary = readOptional { readDailySummary(todayRange) }
-        val export = readRawRecords(exportRange)
+        val selectedRawTypes = supportedRecordTypes.filter {
+            rawRecordTypeNames == null || it.java.simpleName in rawRecordTypeNames
+        }
+        val export = readRawRecords(exportRange, selectedRawTypes)
 
         return HealthSnapshot(
             deviceId = android.provider.Settings.Secure.getString(
@@ -168,7 +174,7 @@ class HealthConnectManager(private val context: Context) {
             exportStart = exportStart.toString(),
             exportEnd = now.toString(),
             grantedPermissions = grantedPermissions().sorted(),
-            requestedRecordTypes = supportedRecordTypes.map { it.java.simpleName }.sorted(),
+            requestedRecordTypes = selectedRawTypes.map { it.java.simpleName }.sorted(),
             steps = summary?.steps,
             caloriesActive = summary?.caloriesActive,
             caloriesTotal = summary?.caloriesTotal,
@@ -343,11 +349,14 @@ class HealthConnectManager(private val context: Context) {
         return kotlin.math.round(value * 10.0) / 10.0
     }
 
-    private suspend fun readRawRecords(range: TimeRangeFilter): RawExport {
+    private suspend fun readRawRecords(
+        range: TimeRangeFilter,
+        recordTypes: List<KClass<out Record>>,
+    ): RawExport {
         val recordsByType = linkedMapOf<String, List<Map<String, Any?>>>()
         val errorsByType = linkedMapOf<String, String>()
 
-        for (recordType in supportedRecordTypes) {
+        for (recordType in recordTypes) {
             val name = recordType.java.simpleName
             try {
                 val records = readRecordsUntyped(recordType, range)
