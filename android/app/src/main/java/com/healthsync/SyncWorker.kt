@@ -15,16 +15,20 @@ import java.util.concurrent.TimeUnit
 class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
-        setForeground(createForegroundInfo())
-
-        val manager = PreferredHealthConnectManager(applicationContext)
-
-        if (!manager.hasPermissions()) {
-            AutoSyncState.recordError(applicationContext, "Health Connect permissions missing")
-            return Result.failure()
-        }
+        val oneShot = inputData.getBoolean(KEY_ONE_SHOT, false)
 
         return try {
+            // Keep foreground setup inside the guarded block: some Android builds can reject
+            // a background foreground-service start. That must never permanently kill periodic sync.
+            setForeground(createForegroundInfo())
+
+            val manager = PreferredHealthConnectManager(applicationContext)
+
+            if (!manager.hasPermissions()) {
+                AutoSyncState.recordError(applicationContext, "Health Connect permissions missing")
+                return if (oneShot) Result.failure() else Result.success()
+            }
+
             val snapshot = manager.readTodaySnapshot()
             val compactSnapshot = SyncPayload.compactForBackground(snapshot)
 
@@ -44,7 +48,14 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                 applicationContext,
                 e.message ?: e.javaClass.simpleName
             )
-            if (runAttemptCount < 3) Result.retry() else Result.failure()
+
+            if (oneShot) {
+                if (runAttemptCount < 3) Result.retry() else Result.failure()
+            } else {
+                // Important: a periodic WorkManager job that returns FAILURE is finished forever.
+                // Preserve the periodic chain after transient Health Connect / Drive / FGS errors.
+                Result.success()
+            }
         }
     }
 
@@ -88,6 +99,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         const val WORK_NAME = "health_sync"
         private const val CHANNEL_ID = "health_sync_background"
         private const val NOTIFICATION_ID = 1001
+        private const val KEY_ONE_SHOT = "one_shot"
 
         fun schedule(context: Context, intervalMinutes: Long = AutoSyncState.intervalMinutes(context)) {
             require(intervalMinutes in AutoSyncState.ALLOWED_INTERVALS)
@@ -114,6 +126,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
 
         fun runOnce(context: Context) {
             val request = OneTimeWorkRequestBuilder<SyncWorker>()
+                .setInputData(workDataOf(KEY_ONE_SHOT to true))
                 .setConstraints(
                     Constraints.Builder()
                         .setRequiredNetworkType(NetworkType.CONNECTED)
