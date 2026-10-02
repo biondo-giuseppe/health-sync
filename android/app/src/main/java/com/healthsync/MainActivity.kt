@@ -1,11 +1,9 @@
 package com.healthsync
 
-import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
@@ -40,10 +38,6 @@ class MainActivity : AppCompatActivity() {
         "1 hour" to 60L,
         "8 hours" to 480L,
     )
-
-    private val notificationPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { }
 
     private val healthPermissionLauncher = registerForActivityResult(
         PermissionController.createRequestPermissionResultContract()
@@ -173,7 +167,6 @@ class MainActivity : AppCompatActivity() {
                 AutoSyncState.setEnabled(this@MainActivity, true)
                 SyncWorker.schedule(this@MainActivity, minutes)
                 SyncWorker.runOnce(this@MainActivity, trigger = "auto-sync-start")
-                requestNotificationPermissionIfNeeded()
                 requestBatteryOptimizationExemption()
                 refreshStatusDisplay()
             }
@@ -346,15 +339,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun requestNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
-    }
-
     private fun requestBatteryOptimizationExemption() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
-
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         if (powerManager.isIgnoringBatteryOptimizations(packageName)) return
 
