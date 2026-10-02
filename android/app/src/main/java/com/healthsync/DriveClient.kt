@@ -138,6 +138,7 @@ object DriveClient {
             })
             snapshot.steps?.let { put("steps", it) }
             snapshot.zeppStepsLastModifiedAt?.let { put("steps_source_last_modified_at", it) }
+            snapshot.zeppStepsLatestEndAt?.let { put("steps_source_latest_record_end_at", it) }
             snapshot.caloriesActive?.let { put("calories_active_kcal", it) }
             snapshot.caloriesTotal?.let { put("calories_total_kcal", it) }
             snapshot.heartRateAvg?.let { put("heart_rate_sample_avg_bpm", it) }
