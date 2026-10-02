@@ -105,6 +105,16 @@ object SyncDiagnostics {
                 append(e.optString("result", "?"))
                 append(" · ")
                 append(e.optString("phase", "?"))
+                if (e.has("steps")) append(" · steps ${e.optLong("steps")}")
+                if (e.has("zepp_steps_latest_end_at")) {
+                    val rawEnd = e.optString("zepp_steps_latest_end_at")
+                    val endTime = runCatching {
+                        val instant = java.time.Instant.parse(rawEnd)
+                        val local = java.time.ZonedDateTime.ofInstant(instant, java.time.ZoneId.systemDefault())
+                        "%02d:%02d".format(local.hour, local.minute)
+                    }.getOrNull()
+                    if (endTime != null) append(" · Zepp data $endTime")
+                }
                 if (e.has("error")) append(" · ${e.optString("error")}")
             }
         }
