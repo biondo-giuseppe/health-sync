@@ -50,7 +50,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
 
             phase = "health-connect-read"
             SyncDiagnostics.phase(applicationContext, diagnostic, phase)
-            val snapshot = manager.readTodaySnapshot()
+            val snapshot = manager.readTodaySnapshot(backgroundCompact = true)
             val compactSnapshot = SyncPayload.compactForBackground(snapshot)
 
             phase = "local-cache"
