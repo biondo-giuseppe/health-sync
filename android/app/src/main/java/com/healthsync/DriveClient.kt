@@ -31,6 +31,7 @@ object DriveClient {
     fun syncSnapshot(context: Context, snapshot: HealthSnapshot) {
         prepareAndCacheSnapshot(context, snapshot)
         flushPending(context)
+        PendingDriveCache.clear(context)
     }
 
     fun prepareAndCacheSnapshot(context: Context, snapshot: HealthSnapshot) {
