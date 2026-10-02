@@ -22,7 +22,7 @@ object SyncDiagnostics {
 
     fun start(context: Context, trigger: String, attempt: Int): Handle {
         val handle = Handle(
-            id = "\${System.currentTimeMillis()}-\${trigger}-\${attempt}",
+            id = "${System.currentTimeMillis()}-${trigger}-${attempt}",
             trigger = trigger,
             attempt = attempt,
             startedAt = ZonedDateTime.now().toString(),
@@ -103,7 +103,7 @@ object SyncDiagnostics {
                 append(e.optString("result", "?"))
                 append(" · ")
                 append(e.optString("phase", "?"))
-                if (e.has("error")) append(" · \${e.optString("error")}")
+                if (e.has("error")) append(" · ${e.optString("error")}")
             }
         }
         return lines.joinToString("\n")
