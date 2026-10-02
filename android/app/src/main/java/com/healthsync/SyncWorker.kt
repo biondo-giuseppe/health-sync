@@ -92,7 +92,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         } catch (e: Exception) {
             AutoSyncState.recordError(
                 applicationContext,
-                "\${phase}: \${e.message ?: e.javaClass.simpleName}"
+                "${phase}: ${e.message ?: e.javaClass.simpleName}"
             )
             SyncDiagnostics.failure(applicationContext, diagnostic, phase, e, retry = true)
             // Do not report a false success. WorkManager will use exponential backoff,
