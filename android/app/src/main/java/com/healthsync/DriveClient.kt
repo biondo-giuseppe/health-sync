@@ -29,6 +29,11 @@ object DriveClient {
     }
 
     fun syncSnapshot(context: Context, snapshot: HealthSnapshot) {
+        prepareAndCacheSnapshot(context, snapshot)
+        flushPending(context)
+    }
+
+    fun prepareAndCacheSnapshot(context: Context, snapshot: HealthSnapshot) {
         val summaryEntry = snapshotToJson(snapshot, includeRawRecords = false)
         val fullEntry = snapshotToJson(snapshot, includeRawRecords = true)
         val uri = fileUri(context)
@@ -47,8 +52,19 @@ object DriveClient {
             }
         }
         updated.put("latest_full_export", fullEntry)
+        PendingDriveCache.save(context, updated.toString(2))
+    }
 
-        writeFile(context, uri, updated)
+    fun flushPending(context: Context): String? {
+        val pending = PendingDriveCache.read(context) ?: return null
+        val uri = fileUri(context)
+            ?: throw Exception("Google Drive file not connected. Tap 'Connect Google Drive' first.")
+        val json = JSONObject(pending)
+        val recordedAt = json.optJSONObject("latest_full_export")?.optString("recorded_at")
+            ?.takeIf { it.isNotBlank() }
+            ?: throw IllegalStateException("Pending Drive payload has no recorded_at")
+        writeRawFile(context, uri, pending)
+        return recordedAt
     }
 
     private fun fileUri(context: Context): Uri? {
@@ -83,10 +99,11 @@ object DriveClient {
         return if (text.isBlank()) null else JSONObject(text)
     }
 
-    private fun writeFile(context: Context, uri: Uri, content: JSONObject) {
+    private fun writeRawFile(context: Context, uri: Uri, content: String) {
         context.contentResolver.openOutputStream(uri, "wt")?.use { output ->
             output.writer().use { writer ->
-                writer.write(content.toString(2))
+                writer.write(content)
+                writer.flush()
             }
         } ?: throw Exception("Could not open $FILE_NAME for writing.")
     }
@@ -119,6 +136,7 @@ object DriveClient {
                 put("note", "Audit-only total across all Health Connect origins. Do not use this for card comparison when selected_summary_origin is present.")
             })
             snapshot.steps?.let { put("steps", it) }
+            snapshot.zeppStepsLastModifiedAt?.let { put("steps_source_last_modified_at", it) }
             snapshot.caloriesActive?.let { put("calories_active_kcal", it) }
             snapshot.caloriesTotal?.let { put("calories_total_kcal", it) }
             snapshot.heartRateAvg?.let { put("heart_rate_sample_avg_bpm", it) }
