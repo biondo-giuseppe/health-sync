@@ -42,16 +42,17 @@ jobs:
       - name: Upload unsigned APK
         uses: actions/upload-artifact@v4
         with:
-          name: HealthSync-1.1.4-unsigned
+          name: HealthSync-1.1.5-unsigned
           path: android/app/build/outputs/apk/release/app-release-unsigned.apk
           retention-days: 1
 
       - name: Package Android signing tools
         run: |
-          mkdir -p signing-tools/lib
+          mkdir -p signing-tools/lib signing-tools/lib64
           cp "$ANDROID_HOME/build-tools/35.0.0/apksigner" signing-tools/
           cp "$ANDROID_HOME/build-tools/35.0.0/zipalign" signing-tools/
           cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" signing-tools/lib/
+          cp "$ANDROID_HOME/build-tools/35.0.0/lib64/libc++.so" signing-tools/lib64/
 
       - name: Upload Android signing tools
         uses: actions/upload-artifact@v4
