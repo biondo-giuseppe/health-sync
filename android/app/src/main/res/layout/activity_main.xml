@@ -149,7 +149,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
-            android:text="Android may defer periodic work. A 60-minute watchdog recovers stale sync automatically."
+            android:text="Android may defer periodic work. A 30-minute watchdog checks and recovers stale sync automatically."
             android:textColor="@color/muted_ink"
             android:textSize="12sp" />
 
