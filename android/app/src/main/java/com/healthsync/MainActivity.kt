@@ -74,7 +74,7 @@ class MainActivity : AppCompatActivity() {
         configureIntervalSpinner()
 
         if (AutoSyncState.isEnabled(this)) {
-            SyncWorker.schedule(this, AutoSyncState.intervalMinutes(this))
+            SyncWorker.ensureScheduled(this, AutoSyncState.intervalMinutes(this))
         }
         refreshStatusDisplay()
 
@@ -189,7 +189,6 @@ class MainActivity : AppCompatActivity() {
         if (!AutoSyncState.isStale(this)) return
 
         staleRecoveryRequestedThisResume = true
-        SyncWorker.schedule(this, AutoSyncState.intervalMinutes(this))
         SyncWorker.runOnce(this, trigger = "stale-on-open")
     }
 
@@ -224,6 +223,8 @@ class MainActivity : AppCompatActivity() {
         intervalSpinner.setOnItemSelectedListener(object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
                 val minutes = intervalOptions[position].second
+                val current = AutoSyncState.intervalMinutes(this@MainActivity)
+                if (minutes == current) return
                 AutoSyncState.setIntervalMinutes(this@MainActivity, minutes)
                 if (AutoSyncState.isEnabled(this@MainActivity)) {
                     SyncWorker.schedule(this@MainActivity, minutes)
@@ -271,6 +272,8 @@ class MainActivity : AppCompatActivity() {
                 appendLine("Primary wearable: Zepp/Amazfit")
                 appendLine("Auto Sync request: ${if (autoSyncEnabled) "Every ${intervalLabel(interval)} (best effort)" else "Off"}")
                 appendLine("Worker: ${workerState?.name ?: if (autoSyncEnabled) "Pending" else "Off"}")
+                val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+                appendLine("Battery optimization: ${if (powerManager.isIgnoringBatteryOptimizations(packageName)) "excluded" else "active"}")
                 if (autoSyncEnabled && stale) appendLine("Sync status: stale — recovery requested")
                 else if (autoSyncEnabled && age != null) appendLine("Sync status: OK · ${age} min ago")
                 AutoSyncState.lastSuccess(this@MainActivity)?.let { appendLine("Last success: $it") }
