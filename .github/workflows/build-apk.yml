@@ -49,10 +49,11 @@ jobs:
 
       - name: Package Android signing tools
         run: |
-          mkdir -p signing-tools/lib
+          mkdir -p signing-tools/lib signing-tools/lib64
           cp "$ANDROID_HOME/build-tools/35.0.0/apksigner" signing-tools/
           cp "$ANDROID_HOME/build-tools/35.0.0/zipalign" signing-tools/
           cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" signing-tools/lib/
+          cp "$ANDROID_HOME/build-tools/35.0.0/lib64/libc++.so" signing-tools/lib64/
 
       - name: Upload Android signing tools
         uses: actions/upload-artifact@v4
