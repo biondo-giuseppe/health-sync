@@ -121,7 +121,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="18dp"
-            android:text="Auto Sync interval"
+            android:text="Requested Auto Sync interval"
             android:textColor="@color/ink"
             android:textSize="14sp"
             android:textStyle="bold" />
@@ -146,6 +146,14 @@
             app:iconTint="@android:color/white" />
 
         <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="Android may defer periodic work. A 60-minute watchdog recovers stale sync automatically."
+            android:textColor="@color/muted_ink"
+            android:textSize="12sp" />
+
+        <TextView
             android:id="@+id/statusText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -158,5 +166,16 @@
             android:text="Checking status..."
             android:textColor="@color/muted_ink"
             android:textSize="15sp" />
+
+        <TextView
+            android:id="@+id/diagnosticsText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/bg_status_panel"
+            android:padding="14dp"
+            android:text="Sync diagnostics"
+            android:textColor="@color/muted_ink"
+            android:textSize="12sp" />
     </LinearLayout>
 </ScrollView>
