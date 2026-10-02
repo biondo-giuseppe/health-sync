@@ -31,6 +31,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var statusText: TextView
     private lateinit var scheduleButton: Button
     private lateinit var intervalSpinner: Spinner
+    private lateinit var diagnosticsText: TextView
     private var staleRecoveryRequestedThisResume = false
 
     private val intervalOptions = listOf(
@@ -67,6 +68,7 @@ class MainActivity : AppCompatActivity() {
         statusText = findViewById(R.id.statusText)
         scheduleButton = findViewById(R.id.btnSchedule)
         intervalSpinner = findViewById(R.id.syncIntervalSpinner)
+        diagnosticsText = findViewById(R.id.diagnosticsText)
         val versionName = runCatching {
             packageManager.getPackageInfo(packageName, 0).versionName
         }.getOrNull() ?: "1.1.0"
@@ -170,7 +172,7 @@ class MainActivity : AppCompatActivity() {
                 AutoSyncState.setIntervalMinutes(this@MainActivity, minutes)
                 AutoSyncState.setEnabled(this@MainActivity, true)
                 SyncWorker.schedule(this@MainActivity, minutes)
-                SyncWorker.runOnce(this@MainActivity)
+                SyncWorker.runOnce(this@MainActivity, trigger = "auto-sync-start")
                 requestNotificationPermissionIfNeeded()
                 requestBatteryOptimizationExemption()
                 refreshStatusDisplay()
@@ -195,7 +197,7 @@ class MainActivity : AppCompatActivity() {
 
         staleRecoveryRequestedThisResume = true
         SyncWorker.schedule(this, AutoSyncState.intervalMinutes(this))
-        SyncWorker.runOnce(this)
+        SyncWorker.runOnce(this, trigger = "stale-on-open")
     }
 
     @Deprecated("Uses legacy activity result API for document picker")
@@ -274,12 +276,17 @@ class MainActivity : AppCompatActivity() {
                 appendLine("Health Connect: ${healthStatusText(healthAvailability, hasHealth)}")
                 appendLine("Google Drive: ${if (hasDriveFile) "File connected" else "Tap button below"}")
                 appendLine("Primary wearable: Zepp/Amazfit")
-                appendLine("Auto Sync: ${if (autoSyncEnabled) "Every ${intervalLabel(interval)}" else "Off"}")
+                appendLine("Auto Sync request: ${if (autoSyncEnabled) "Every ${intervalLabel(interval)} (best effort)" else "Off"}")
                 appendLine("Worker: ${workerState?.name ?: if (autoSyncEnabled) "Pending" else "Off"}")
                 if (autoSyncEnabled && stale) appendLine("Sync status: stale — recovery requested")
                 else if (autoSyncEnabled && age != null) appendLine("Sync status: OK · ${age} min ago")
                 AutoSyncState.lastSuccess(this@MainActivity)?.let { appendLine("Last success: $it") }
                 AutoSyncState.lastError(this@MainActivity)?.let { appendLine("Last error: $it") }
+                if (PendingDriveCache.hasPending(this@MainActivity)) appendLine("Pending local upload: yes")
+            }
+            diagnosticsText.text = buildString {
+                appendLine("Recent sync attempts")
+                append(SyncDiagnostics.summary(this@MainActivity))
             }
         }
     }
