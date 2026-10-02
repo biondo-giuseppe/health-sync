@@ -113,7 +113,7 @@ class PreferredHealthConnectManager(private val context: Context) {
         val usefulNames = usefulRecordTypes.map { it.java.simpleName }.toSet()
         val common = baseline.copy(
             grantedPermissions = client.permissionController.getGrantedPermissions().filter { it in permissions }.sorted(),
-            requestedRecordTypes = usefulNames.sorted(),
+            requestedRecordTypes = baseline.requestedRecordTypes,
             rawRecords = baseline.rawRecords.filterKeys { it in usefulNames },
             extractionErrors = baseline.extractionErrors.filterKeys { it in usefulNames },
         )
