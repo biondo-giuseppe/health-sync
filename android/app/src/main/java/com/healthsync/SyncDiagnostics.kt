@@ -53,6 +53,7 @@ object SyncDiagnostics {
         recordedAt: String,
         steps: Long?,
         zeppStepsLastModifiedAt: String?,
+        zeppStepsLatestEndAt: String?,
     ) {
         update(context, handle.id) {
             put("ended_at", ZonedDateTime.now().toString())
@@ -61,6 +62,7 @@ object SyncDiagnostics {
             put("snapshot_recorded_at", recordedAt)
             steps?.let { put("steps", it) }
             zeppStepsLastModifiedAt?.let { put("zepp_steps_last_modified_at", it) }
+            zeppStepsLatestEndAt?.let { put("zepp_steps_latest_end_at", it) }
         }
     }
 
