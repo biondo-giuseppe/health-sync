@@ -123,7 +123,7 @@ class PreferredHealthConnectManager(private val context: Context) {
 
         val zeppSleep = runCatching { readZeppSleep(sleepRange, zone) }.getOrNull()
         val zeppHrv = runCatching { readZeppHrv(sleepRange) }.getOrNull()
-        val zeppStepsLastModifiedAt = runCatching { readLatestZeppStepsModifiedAt(range) }.getOrNull()
+        val zeppStepFreshness = runCatching { readLatestZeppStepFreshness(range) }.getOrNull()
 
         return common.copy(
             steps = zeppSteps,
@@ -147,12 +147,18 @@ class PreferredHealthConnectManager(private val context: Context) {
             hrvRmssdSampleCount = zeppHrv?.count ?: common.hrvRmssdSampleCount,
             selectedSummaryOrigin = ZEPP_PACKAGE,
             summaryDataOrigins = listOf(ZEPP_PACKAGE),
-            zeppStepsLastModifiedAt = zeppStepsLastModifiedAt,
+            zeppStepsLastModifiedAt = zeppStepFreshness?.lastModifiedAt,
+            zeppStepsLatestEndAt = zeppStepFreshness?.recordEndAt,
         )
     }
 
-    private suspend fun readLatestZeppStepsModifiedAt(range: TimeRangeFilter): String? {
-        val records = client.readRecords(
+    private data class StepFreshness(
+        val lastModifiedAt: String?,
+        val recordEndAt: String?,
+    )
+
+    private suspend fun readLatestZeppStepFreshness(range: TimeRangeFilter): StepFreshness? {
+        val record = client.readRecords(
             ReadRecordsRequest(
                 recordType = StepsRecord::class,
                 timeRangeFilter = range,
@@ -160,8 +166,11 @@ class PreferredHealthConnectManager(private val context: Context) {
                 ascendingOrder = false,
                 pageSize = 1,
             )
-        ).records
-        return records.firstOrNull()?.metadata?.lastModifiedTime?.toString()
+        ).records.firstOrNull() ?: return null
+        return StepFreshness(
+            lastModifiedAt = record.metadata.lastModifiedTime.toString(),
+            recordEndAt = record.endTime.toString(),
+        )
     }
 
     private data class SleepPick(
