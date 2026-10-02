@@ -116,6 +116,7 @@ class PreferredHealthConnectManager(private val context: Context) {
 
         val zeppSleep = runCatching { readZeppSleep(sleepRange, zone) }.getOrNull()
         val zeppHrv = runCatching { readZeppHrv(sleepRange) }.getOrNull()
+        val zeppStepsLastModifiedAt = runCatching { readLatestZeppStepsModifiedAt(range) }.getOrNull()
 
         return common.copy(
             steps = zeppSteps,
@@ -139,7 +140,21 @@ class PreferredHealthConnectManager(private val context: Context) {
             hrvRmssdSampleCount = zeppHrv?.count ?: common.hrvRmssdSampleCount,
             selectedSummaryOrigin = ZEPP_PACKAGE,
             summaryDataOrigins = listOf(ZEPP_PACKAGE),
+            zeppStepsLastModifiedAt = zeppStepsLastModifiedAt,
         )
+    }
+
+    private suspend fun readLatestZeppStepsModifiedAt(range: TimeRangeFilter): String? {
+        val records = client.readRecords(
+            ReadRecordsRequest(
+                recordType = StepsRecord::class,
+                timeRangeFilter = range,
+                dataOriginFilter = setOf(DataOrigin(ZEPP_PACKAGE)),
+                ascendingOrder = false,
+                pageSize = 1,
+            )
+        ).records
+        return records.firstOrNull()?.metadata?.lastModifiedTime?.toString()
     }
 
     private data class SleepPick(
