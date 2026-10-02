@@ -82,6 +82,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                 compactSnapshot.recordedAt,
                 compactSnapshot.steps,
                 compactSnapshot.zeppStepsLastModifiedAt,
+                compactSnapshot.zeppStepsLatestEndAt,
             )
             SyncWatchdogReceiver.schedule(applicationContext)
             Result.success()
