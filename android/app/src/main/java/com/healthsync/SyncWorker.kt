@@ -109,6 +109,18 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         private val processMutex = Mutex()
 
         fun schedule(context: Context, intervalMinutes: Long = AutoSyncState.intervalMinutes(context)) {
+            enqueuePeriodic(context, intervalMinutes, ExistingPeriodicWorkPolicy.UPDATE)
+        }
+
+        fun ensureScheduled(context: Context, intervalMinutes: Long = AutoSyncState.intervalMinutes(context)) {
+            enqueuePeriodic(context, intervalMinutes, ExistingPeriodicWorkPolicy.KEEP)
+        }
+
+        private fun enqueuePeriodic(
+            context: Context,
+            intervalMinutes: Long,
+            policy: ExistingPeriodicWorkPolicy,
+        ) {
             require(intervalMinutes in AutoSyncState.ALLOWED_INTERVALS)
 
             val constraints = Constraints.Builder()
@@ -123,7 +135,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
 
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(
                 WORK_NAME,
-                ExistingPeriodicWorkPolicy.UPDATE,
+                policy,
                 request
             )
             SyncWatchdogReceiver.schedule(context)
