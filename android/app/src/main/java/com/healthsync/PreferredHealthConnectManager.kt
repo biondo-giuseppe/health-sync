@@ -78,8 +78,15 @@ class PreferredHealthConnectManager(private val context: Context) {
         return client.permissionController.getGrantedPermissions().containsAll(requiredPermissions)
     }
 
-    suspend fun readTodaySnapshot(): HealthSnapshot {
-        val baseline = delegate.readTodaySnapshot()
+    suspend fun readTodaySnapshot(backgroundCompact: Boolean = false): HealthSnapshot {
+        val baseline = if (backgroundCompact) {
+            delegate.readTodaySnapshot(
+                rawRecordTypeNames = BACKGROUND_RAW_RECORD_TYPES,
+                exportHistoryDays = BACKGROUND_EXPORT_DAYS,
+            )
+        } else {
+            delegate.readTodaySnapshot()
+        }
         val now = Instant.now()
         val zone = ZoneId.systemDefault()
         val range = TimeRangeFilter.between(LocalDate.now().atStartOfDay(zone).toInstant(), now)
@@ -221,5 +228,13 @@ class PreferredHealthConnectManager(private val context: Context) {
 
     companion object {
         const val ZEPP_PACKAGE = "com.huami.watch.hmwatchmanager"
+        private const val BACKGROUND_EXPORT_DAYS = 7L
+        private val BACKGROUND_RAW_RECORD_TYPES = setOf(
+            "ExerciseSessionRecord",
+            "WeightRecord",
+            "BodyFatRecord",
+            "LeanBodyMassRecord",
+            "BodyWaterMassRecord",
+        )
     }
 }
