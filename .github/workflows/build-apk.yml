@@ -1,5 +1,7 @@
 name: Android CI
 
+# 1.1.6 validation build
+
 on:
   push:
     branches: [main, fix/health-sync-1.1.6-drive-binding]
