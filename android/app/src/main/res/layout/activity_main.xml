@@ -47,7 +47,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="Health Connect to Google Drive"
+                android:text="Health Connect → Supabase Direct"
                 android:textColor="@color/muted_ink"
                 android:textSize="15sp" />
 
@@ -97,12 +97,26 @@
             app:icon="@drawable/ic_health"
             app:iconTint="@android:color/white" />
 
+        <EditText
+            android:id="@+id/pairingCodeInput"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="10dp"
+            android:background="@drawable/bg_status_panel"
+            android:hint="Codice collegamento Supabase"
+            android:inputType="textCapCharacters"
+            android:maxLength="12"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:textColor="@color/ink"
+            android:textColorHint="@color/muted_ink" />
+
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnConnectDrive"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:text="Connect Google Drive File"
+            android:layout_marginTop="8dp"
+            android:text="Collega Supabase"
             app:backgroundTint="@color/drive_blue"
             app:icon="@drawable/ic_drive"
             app:iconTint="@android:color/white" />
@@ -121,7 +135,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="18dp"
-            android:text="Auto Sync interval"
+            android:text="Requested Auto Sync interval"
             android:textColor="@color/ink"
             android:textSize="14sp"
             android:textStyle="bold" />
@@ -146,6 +160,14 @@
             app:iconTint="@android:color/white" />
 
         <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="Sync diretto Health Connect → Supabase. Nessun file Drive e nessun Apps Script nel percorso principale."
+            android:textColor="@color/muted_ink"
+            android:textSize="12sp" />
+
+        <TextView
             android:id="@+id/statusText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -158,5 +180,16 @@
             android:text="Checking status..."
             android:textColor="@color/muted_ink"
             android:textSize="15sp" />
+
+        <TextView
+            android:id="@+id/diagnosticsText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/bg_status_panel"
+            android:padding="14dp"
+            android:text="Sync diagnostics"
+            android:textColor="@color/muted_ink"
+            android:textSize="12sp" />
     </LinearLayout>
 </ScrollView>
