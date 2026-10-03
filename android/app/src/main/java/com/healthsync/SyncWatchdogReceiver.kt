@@ -12,7 +12,13 @@ class SyncWatchdogReceiver : BroadcastReceiver() {
         if (!AutoSyncState.isEnabled(context)) return
         schedule(context)
 
-        if (AutoSyncState.isStale(context)) {
+        val stale = AutoSyncState.isStale(context)
+        SyncDiagnostics.watchdog(
+            context,
+            stale = stale,
+            ageMinutes = AutoSyncState.minutesSinceLastSuccess(context),
+        )
+        if (stale) {
             SyncWorker.runOnce(context, trigger = "watchdog")
         }
     }
