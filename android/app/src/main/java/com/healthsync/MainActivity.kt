@@ -12,6 +12,7 @@ import android.view.ViewGroup
 import android.view.animation.AnimationUtils
 import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.EditText
 import android.widget.Spinner
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
@@ -101,12 +102,24 @@ class MainActivity : AppCompatActivity() {
         }
 
         findViewById<Button>(R.id.btnConnectDrive).setOnClickListener {
-            try {
-                updateStatus("Select the EXISTING health_data.json used by the dashboard. Do not create a new file.")
-                @Suppress("DEPRECATION")
-                startActivityForResult(createDriveFileIntent(), RC_DRIVE_FILE)
-            } catch (e: ActivityNotFoundException) {
-                updateStatus("No file picker found. Install Google Drive and try again.")
+            val code = findViewById<EditText>(R.id.pairingCodeInput).text.toString().trim()
+            if (code.length != 6) {
+                updateStatus("Inserisci il codice di collegamento a 6 cifre.")
+                return@setOnClickListener
+            }
+            lifecycleScope.launch {
+                updateStatus("Collegamento sicuro a Supabase...")
+                try {
+                    val deviceId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID) ?: "android"
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        SupabaseDirectClient.pair(applicationContext, code, deviceId)
+                    }
+                    findViewById<EditText>(R.id.pairingCodeInput).setText("")
+                    updateStatus("Supabase collegato. Il token è salvato nel keystore Android.")
+                    refreshStatusDisplay()
+                } catch (e: Exception) {
+                    updateStatus("Collegamento Supabase fallito: " + (e.message ?: "errore"))
+                }
             }
         }
 
@@ -117,19 +130,19 @@ class MainActivity : AppCompatActivity() {
                     openHealthConnectPermissions()
                     return@launch
                 }
-                if (!DriveClient.hasFile(this@MainActivity)) {
-                    updateStatus("Connect Google Drive first.")
+                if (!SupabaseDirectClient.isPaired(this@MainActivity)) {
+                    updateStatus("Collega Supabase prima.")
                     return@launch
                 }
-                updateStatus("Syncing to Google Drive...")
+                updateStatus("Sincronizzazione diretta a Supabase...")
                 try {
                     val snapshot = healthManager.readTodaySnapshot()
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        DriveClient.syncSnapshot(applicationContext, snapshot)
+                        SupabaseDirectClient.syncSnapshot(applicationContext, snapshot)
                     }
                     AutoSyncState.recordSuccess(this@MainActivity, ZonedDateTime.now().toString())
                     updateStatus(
-                        "Synced to Drive!\n" +
+                        "Sincronizzato direttamente su Supabase!\n" +
                             "Primary source: ${sourceLabel(snapshot.selectedSummaryOrigin)}\n" +
                             "Steps: ${snapshot.steps ?: "--"}\n" +
                             "HR: ${snapshot.heartRateAvg ?: "--"} bpm\n" +
@@ -157,8 +170,8 @@ class MainActivity : AppCompatActivity() {
                     openHealthConnectPermissions()
                     return@launch
                 }
-                if (!DriveClient.hasFile(this@MainActivity)) {
-                    updateStatus("Connect Google Drive before starting auto sync.")
+                if (!SupabaseDirectClient.isPaired(this@MainActivity)) {
+                    updateStatus("Collega Supabase prima di avviare la sincronizzazione automatica.")
                     return@launch
                 }
 
@@ -185,7 +198,7 @@ class MainActivity : AppCompatActivity() {
     private fun recoverStaleSyncIfNeeded() {
         if (staleRecoveryRequestedThisResume) return
         if (!AutoSyncState.isEnabled(this)) return
-        if (!DriveClient.hasFile(this)) return
+        if (!SupabaseDirectClient.isPaired(this)) return
         if (!AutoSyncState.isStale(this)) return
 
         staleRecoveryRequestedThisResume = true
@@ -259,7 +272,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshStatusDisplay() {
-        val hasDriveFile = DriveClient.hasFile(this)
+        val supabasePaired = SupabaseDirectClient.isPaired(this)
         val autoSyncEnabled = AutoSyncState.isEnabled(this)
         val interval = AutoSyncState.intervalMinutes(this)
         val stale = AutoSyncState.isStale(this)
@@ -281,11 +294,7 @@ class MainActivity : AppCompatActivity() {
 
             statusText.text = buildString {
                 appendLine("Health Connect: ${healthStatusText(healthAvailability, hasHealth)}")
-                appendLine("Google Drive: ${if (hasDriveFile) "Existing file connected" else "Select existing file"}")
-                DriveClient.selectedFileInfo(this@MainActivity)?.let { info ->
-                    appendLine("Drive history: ${info.snapshotCount} snapshots")
-                    info.lastUpdated?.let { appendLine("Drive file last data: $it") }
-                }
+                appendLine("Supabase Direct: " + if (supabasePaired) "Connected" else "Not paired")
                 appendLine("Primary wearable: Zepp/Amazfit")
                 appendLine("Auto Sync request: ${if (autoSyncEnabled) "Every ${intervalLabel(interval)} (best effort)" else "Off"}")
                 appendLine("Worker: ${workerState?.name ?: if (autoSyncEnabled) "Pending" else "Off"}")
@@ -295,7 +304,7 @@ class MainActivity : AppCompatActivity() {
                 else if (autoSyncEnabled && age != null) appendLine("Sync status: OK · ${age} min ago")
                 AutoSyncState.lastSuccess(this@MainActivity)?.let { appendLine("Last success: $it") }
                 AutoSyncState.lastError(this@MainActivity)?.let { appendLine("Last error: $it") }
-                if (PendingDriveCache.hasPending(this@MainActivity)) appendLine("Pending local upload: yes")
+                if (PendingSupabaseCache.hasPending(this@MainActivity)) appendLine("Pending direct upload: yes")
             }
             diagnosticsText.text = buildString {
                 appendLine("Recent sync attempts")
