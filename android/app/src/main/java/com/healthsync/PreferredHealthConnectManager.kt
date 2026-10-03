@@ -78,8 +78,15 @@ class PreferredHealthConnectManager(private val context: Context) {
         return client.permissionController.getGrantedPermissions().containsAll(requiredPermissions)
     }
 
-    suspend fun readTodaySnapshot(): HealthSnapshot {
-        val baseline = delegate.readTodaySnapshot()
+    suspend fun readTodaySnapshot(backgroundCompact: Boolean = false): HealthSnapshot {
+        val baseline = if (backgroundCompact) {
+            delegate.readTodaySnapshot(
+                rawRecordTypeNames = BACKGROUND_RAW_RECORD_TYPES,
+                exportHistoryDays = BACKGROUND_EXPORT_DAYS,
+            )
+        } else {
+            delegate.readTodaySnapshot()
+        }
         val now = Instant.now()
         val zone = ZoneId.systemDefault()
         val range = TimeRangeFilter.between(LocalDate.now().atStartOfDay(zone).toInstant(), now)
@@ -106,7 +113,7 @@ class PreferredHealthConnectManager(private val context: Context) {
         val usefulNames = usefulRecordTypes.map { it.java.simpleName }.toSet()
         val common = baseline.copy(
             grantedPermissions = client.permissionController.getGrantedPermissions().filter { it in permissions }.sorted(),
-            requestedRecordTypes = usefulNames.sorted(),
+            requestedRecordTypes = baseline.requestedRecordTypes,
             rawRecords = baseline.rawRecords.filterKeys { it in usefulNames },
             extractionErrors = baseline.extractionErrors.filterKeys { it in usefulNames },
         )
@@ -116,6 +123,7 @@ class PreferredHealthConnectManager(private val context: Context) {
 
         val zeppSleep = runCatching { readZeppSleep(sleepRange, zone) }.getOrNull()
         val zeppHrv = runCatching { readZeppHrv(sleepRange) }.getOrNull()
+        val zeppStepFreshness = runCatching { readLatestZeppStepFreshness(range) }.getOrNull()
 
         return common.copy(
             steps = zeppSteps,
@@ -139,6 +147,29 @@ class PreferredHealthConnectManager(private val context: Context) {
             hrvRmssdSampleCount = zeppHrv?.count ?: common.hrvRmssdSampleCount,
             selectedSummaryOrigin = ZEPP_PACKAGE,
             summaryDataOrigins = listOf(ZEPP_PACKAGE),
+            zeppStepsLastModifiedAt = zeppStepFreshness?.lastModifiedAt,
+            zeppStepsLatestEndAt = zeppStepFreshness?.recordEndAt,
+        )
+    }
+
+    private data class StepFreshness(
+        val lastModifiedAt: String?,
+        val recordEndAt: String?,
+    )
+
+    private suspend fun readLatestZeppStepFreshness(range: TimeRangeFilter): StepFreshness? {
+        val record = client.readRecords(
+            ReadRecordsRequest(
+                recordType = StepsRecord::class,
+                timeRangeFilter = range,
+                dataOriginFilter = setOf(DataOrigin(ZEPP_PACKAGE)),
+                ascendingOrder = false,
+                pageSize = 1,
+            )
+        ).records.firstOrNull() ?: return null
+        return StepFreshness(
+            lastModifiedAt = record.metadata.lastModifiedTime.toString(),
+            recordEndAt = record.endTime.toString(),
         )
     }
 
@@ -206,5 +237,13 @@ class PreferredHealthConnectManager(private val context: Context) {
 
     companion object {
         const val ZEPP_PACKAGE = "com.huami.watch.hmwatchmanager"
+        private const val BACKGROUND_EXPORT_DAYS = 7L
+        private val BACKGROUND_RAW_RECORD_TYPES = setOf(
+            "ExerciseSessionRecord",
+            "WeightRecord",
+            "BodyFatRecord",
+            "LeanBodyMassRecord",
+            "BodyWaterMassRecord",
+        )
     }
 }

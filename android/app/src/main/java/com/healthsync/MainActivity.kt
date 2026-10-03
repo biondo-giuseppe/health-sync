@@ -1,11 +1,9 @@
 package com.healthsync
 
-import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
@@ -31,6 +29,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var statusText: TextView
     private lateinit var scheduleButton: Button
     private lateinit var intervalSpinner: Spinner
+    private lateinit var diagnosticsText: TextView
     private var staleRecoveryRequestedThisResume = false
 
     private val intervalOptions = listOf(
@@ -39,10 +38,6 @@ class MainActivity : AppCompatActivity() {
         "1 hour" to 60L,
         "8 hours" to 480L,
     )
-
-    private val notificationPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { }
 
     private val healthPermissionLauncher = registerForActivityResult(
         PermissionController.createRequestPermissionResultContract()
@@ -67,6 +62,7 @@ class MainActivity : AppCompatActivity() {
         statusText = findViewById(R.id.statusText)
         scheduleButton = findViewById(R.id.btnSchedule)
         intervalSpinner = findViewById(R.id.syncIntervalSpinner)
+        diagnosticsText = findViewById(R.id.diagnosticsText)
         val versionName = runCatching {
             packageManager.getPackageInfo(packageName, 0).versionName
         }.getOrNull() ?: "1.1.0"
@@ -78,7 +74,7 @@ class MainActivity : AppCompatActivity() {
         configureIntervalSpinner()
 
         if (AutoSyncState.isEnabled(this)) {
-            SyncWorker.schedule(this, AutoSyncState.intervalMinutes(this))
+            SyncWorker.ensureScheduled(this, AutoSyncState.intervalMinutes(this))
         }
         refreshStatusDisplay()
 
@@ -106,7 +102,7 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<Button>(R.id.btnConnectDrive).setOnClickListener {
             try {
-                updateStatus("Choose Google Drive and save as health_data.json.")
+                updateStatus("Select the EXISTING health_data.json used by the dashboard. Do not create a new file.")
                 @Suppress("DEPRECATION")
                 startActivityForResult(createDriveFileIntent(), RC_DRIVE_FILE)
             } catch (e: ActivityNotFoundException) {
@@ -170,8 +166,7 @@ class MainActivity : AppCompatActivity() {
                 AutoSyncState.setIntervalMinutes(this@MainActivity, minutes)
                 AutoSyncState.setEnabled(this@MainActivity, true)
                 SyncWorker.schedule(this@MainActivity, minutes)
-                SyncWorker.runOnce(this@MainActivity)
-                requestNotificationPermissionIfNeeded()
+                SyncWorker.runOnce(this@MainActivity, trigger = "auto-sync-start")
                 requestBatteryOptimizationExemption()
                 refreshStatusDisplay()
             }
@@ -194,8 +189,7 @@ class MainActivity : AppCompatActivity() {
         if (!AutoSyncState.isStale(this)) return
 
         staleRecoveryRequestedThisResume = true
-        SyncWorker.schedule(this, AutoSyncState.intervalMinutes(this))
-        SyncWorker.runOnce(this)
+        SyncWorker.runOnce(this, trigger = "stale-on-open")
     }
 
     @Deprecated("Uses legacy activity result API for document picker")
@@ -205,9 +199,22 @@ class MainActivity : AppCompatActivity() {
         if (requestCode == RC_DRIVE_FILE) {
             val uri = data?.data
             if (resultCode == RESULT_OK && uri != null) {
-                DriveClient.saveFileUri(this, uri, data.flags)
-                updateStatus("Google Drive file connected.\nYour file: health_data.json")
-                refreshStatusDisplay()
+                try {
+                    val info = DriveClient.saveExistingFileUri(this, uri, data.flags)
+                    updateStatus(
+                        "Existing Drive file connected.\n" +
+                            "File: ${info.displayName ?: "health_data.json"}\n" +
+                            "History snapshots: ${info.snapshotCount}\n" +
+                            "Last data: ${info.lastUpdated ?: "unknown"}"
+                    )
+                    if (AutoSyncState.isEnabled(this)) {
+                        SyncWorker.schedule(this, AutoSyncState.intervalMinutes(this))
+                        SyncWorker.runOnce(this, trigger = "drive-rebind")
+                    }
+                    refreshStatusDisplay()
+                } catch (e: Exception) {
+                    updateStatus("Drive file rejected: ${e.message ?: "invalid file"}")
+                }
             } else {
                 updateStatus("Google Drive file selection cancelled.")
             }
@@ -229,6 +236,8 @@ class MainActivity : AppCompatActivity() {
         intervalSpinner.setOnItemSelectedListener(object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
                 val minutes = intervalOptions[position].second
+                val current = AutoSyncState.intervalMinutes(this@MainActivity)
+                if (minutes == current) return
                 AutoSyncState.setIntervalMinutes(this@MainActivity, minutes)
                 if (AutoSyncState.isEnabled(this@MainActivity)) {
                     SyncWorker.schedule(this@MainActivity, minutes)
@@ -272,14 +281,25 @@ class MainActivity : AppCompatActivity() {
 
             statusText.text = buildString {
                 appendLine("Health Connect: ${healthStatusText(healthAvailability, hasHealth)}")
-                appendLine("Google Drive: ${if (hasDriveFile) "File connected" else "Tap button below"}")
+                appendLine("Google Drive: ${if (hasDriveFile) "Existing file connected" else "Select existing file"}")
+                DriveClient.selectedFileInfo(this@MainActivity)?.let { info ->
+                    appendLine("Drive history: ${info.snapshotCount} snapshots")
+                    info.lastUpdated?.let { appendLine("Drive file last data: $it") }
+                }
                 appendLine("Primary wearable: Zepp/Amazfit")
-                appendLine("Auto Sync: ${if (autoSyncEnabled) "Every ${intervalLabel(interval)}" else "Off"}")
+                appendLine("Auto Sync request: ${if (autoSyncEnabled) "Every ${intervalLabel(interval)} (best effort)" else "Off"}")
                 appendLine("Worker: ${workerState?.name ?: if (autoSyncEnabled) "Pending" else "Off"}")
+                val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+                appendLine("Battery optimization: ${if (powerManager.isIgnoringBatteryOptimizations(packageName)) "excluded" else "active"}")
                 if (autoSyncEnabled && stale) appendLine("Sync status: stale — recovery requested")
                 else if (autoSyncEnabled && age != null) appendLine("Sync status: OK · ${age} min ago")
                 AutoSyncState.lastSuccess(this@MainActivity)?.let { appendLine("Last success: $it") }
                 AutoSyncState.lastError(this@MainActivity)?.let { appendLine("Last error: $it") }
+                if (PendingDriveCache.hasPending(this@MainActivity)) appendLine("Pending local upload: yes")
+            }
+            diagnosticsText.text = buildString {
+                appendLine("Recent sync attempts")
+                append(SyncDiagnostics.summary(this@MainActivity))
             }
         }
     }
@@ -329,25 +349,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun createDriveFileIntent(): Intent {
-        return Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+        return Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "application/json"
-            putExtra(Intent.EXTRA_TITLE, "health_data.json")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
             addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
         }
     }
 
-    private fun requestNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
-    }
-
     private fun requestBatteryOptimizationExemption() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
-
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         if (powerManager.isIgnoringBatteryOptimizations(packageName)) return
 
