@@ -5,14 +5,14 @@ plugins {
 
 android {
     namespace = "com.healthsync"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.healthsync"
         minSdk = 26
         targetSdk = 34
-        versionCode = 8
-        versionName = "1.1.5"
+        versionCode = 10
+        versionName = "1.1.7"
     }
 
     buildTypes {
@@ -37,8 +37,8 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.11.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
-    implementation("androidx.health.connect:connect-client:1.1.0-alpha11")
-    implementation("androidx.work:work-runtime-ktx:2.9.0")
+    implementation("androidx.health.connect:connect-client:1.1.0")
+    implementation("androidx.work:work-runtime-ktx:2.11.2")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
