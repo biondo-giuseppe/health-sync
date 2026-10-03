@@ -42,7 +42,7 @@ jobs:
       - name: Upload unsigned APK
         uses: actions/upload-artifact@v4
         with:
-          name: HealthSync-1.1.5-unsigned
+          name: HealthSync-1.1.6-unsigned
           path: android/app/build/outputs/apk/release/app-release-unsigned.apk
           retention-days: 1
 
