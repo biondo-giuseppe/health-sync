@@ -1,5 +1,6 @@
 package com.healthsync
 
+import android.content.Context
 import androidx.work.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -12,6 +13,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         val oneShot = inputData.getBoolean(KEY_ONE_SHOT, false)
 
         return try {
+            AutoSyncState.recordAttempt(applicationContext, ZonedDateTime.now().toString(), "worker_started")
 
             val manager = PreferredHealthConnectManager(applicationContext)
 
@@ -20,19 +22,23 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                 return if (oneShot) Result.failure() else Result.success()
             }
 
-            AutoSyncState.recordAttempt(applicationContext, ZonedDateTime.now().toString(), "health_read_started")\n            val snapshot = manager.readTodaySnapshot()
+            AutoSyncState.recordAttempt(applicationContext, ZonedDateTime.now().toString(), "health_read_started")
+            val snapshot = manager.readTodaySnapshot()
             val compactSnapshot = SyncPayload.compactForBackground(snapshot)
 
-            AutoSyncState.recordAttempt(applicationContext, ZonedDateTime.now().toString(), "drive_write_started")\n            withContext(Dispatchers.IO) {
+            AutoSyncState.recordAttempt(applicationContext, ZonedDateTime.now().toString(), "drive_write_started")
+            withContext(Dispatchers.IO) {
                 DriveClient.syncSnapshot(applicationContext, compactSnapshot)
             }
 
-            AutoSyncState.recordAttempt(applicationContext, ZonedDateTime.now().toString(), "drive_verify_started")\n            DriveWriteVerifier.awaitRecordedAt(
+            AutoSyncState.recordAttempt(applicationContext, ZonedDateTime.now().toString(), "drive_verify_started")
+            DriveWriteVerifier.awaitRecordedAt(
                 applicationContext,
                 compactSnapshot.recordedAt
             )
 
-            AutoSyncState.recordAttempt(applicationContext, ZonedDateTime.now().toString(), "completed")\n            AutoSyncState.recordSuccess(applicationContext, ZonedDateTime.now().toString())
+            AutoSyncState.recordAttempt(applicationContext, ZonedDateTime.now().toString(), "completed")
+            AutoSyncState.recordSuccess(applicationContext, ZonedDateTime.now().toString())
             Result.success()
         } catch (e: Exception) {
             AutoSyncState.recordError(
