@@ -85,7 +85,21 @@ object SyncDiagnostics {
         }
     }
 
-    fun summary(context: Context, limit: Int = 6): String {
+    fun watchdog(context: Context, stale: Boolean, ageMinutes: Long?) {
+        append(context, JSONObject().apply {
+            put("id", "${System.currentTimeMillis()}-watchdog")
+            put("trigger", "watchdog-check")
+            put("attempt", 0)
+            put("started_at", ZonedDateTime.now().toString())
+            put("phase", if (stale) "recovery-enqueue" else "healthy")
+            put("result", if (stale) "recovery-requested" else "no-action")
+            ageMinutes?.let { put("last_success_age_minutes", it) }
+            put("network", networkState(context))
+            put("battery_optimization_ignored", batteryOptimizationIgnored(context))
+        })
+    }
+
+    fun summary(context: Context, limit: Int = 10): String {
         val array = load(context)
         if (array.length() == 0) return "Nessun tentativo registrato."
         val lines = mutableListOf<String>()
