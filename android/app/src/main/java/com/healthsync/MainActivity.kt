@@ -102,7 +102,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         findViewById<Button>(R.id.btnConnectDrive).setOnClickListener {
-            val code = findViewById<EditText>(R.id.pairingCodeInput).text.toString().trim()
+            val code = findViewById<EditText>(R.id.pairingCodeInput).text.toString().trim().uppercase()
             if (code.length != 6) {
                 updateStatus("Inserisci il codice di collegamento a 6 cifre.")
                 return@setOnClickListener
@@ -116,6 +116,10 @@ class MainActivity : AppCompatActivity() {
                     }
                     findViewById<EditText>(R.id.pairingCodeInput).setText("")
                     updateStatus("Supabase collegato. Il token è salvato nel keystore Android.")
+                    if (AutoSyncState.isEnabled(this@MainActivity)) {
+                        SyncWorker.ensureScheduled(this@MainActivity, AutoSyncState.intervalMinutes(this@MainActivity))
+                        SyncWorker.runOnce(this@MainActivity, trigger = "supabase-pair")
+                    }
                     refreshStatusDisplay()
                 } catch (e: Exception) {
                     updateStatus("Collegamento Supabase fallito: " + (e.message ?: "errore"))
