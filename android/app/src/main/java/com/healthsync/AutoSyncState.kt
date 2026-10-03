@@ -60,7 +60,7 @@ object AutoSyncState {
     }
 
     fun staleThresholdMinutes(context: Context): Long =
-        maxOf(45L, intervalMinutes(context) * 3L)
+        maxOf(30L, intervalMinutes(context) * 2L)
 
     fun isStale(context: Context): Boolean {
         if (!isEnabled(context)) return false
