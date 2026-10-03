@@ -1,6 +1,6 @@
 name: Android CI
 
-# 1.1.6 validation build
+# 1.1.6 clean validation build
 
 on:
   push:
