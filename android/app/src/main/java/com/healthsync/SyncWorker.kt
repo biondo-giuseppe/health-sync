@@ -25,9 +25,9 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                 return@withLock Result.success()
             }
 
-            if (!DriveClient.hasFile(applicationContext)) {
-                AutoSyncState.recordError(applicationContext, "Google Drive file missing")
-                SyncDiagnostics.permanent(applicationContext, diagnostic, phase, "Google Drive file missing")
+            if (!SupabaseDirectClient.isPaired(applicationContext)) {
+                AutoSyncState.recordError(applicationContext, "Supabase not paired")
+                SyncDiagnostics.permanent(applicationContext, diagnostic, phase, "Supabase not paired")
                 return@withLock Result.success()
             }
 
@@ -37,15 +37,14 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                 return@withLock Result.success()
             }
 
-            // First recover any fully prepared payload left behind by an earlier Drive failure.
-            phase = "pending-drive-upload"
+            // First recover any fully prepared payload left behind by an earlier network/API failure.
+            phase = "pending-supabase-upload"
             SyncDiagnostics.phase(applicationContext, diagnostic, phase)
             val pendingRecordedAt = withContext(Dispatchers.IO) {
-                DriveClient.flushPending(applicationContext)
+                SupabaseDirectClient.flushPending(applicationContext)
             }
             if (pendingRecordedAt != null) {
-                DriveWriteVerifier.awaitRecordedAt(applicationContext, pendingRecordedAt)
-                PendingDriveCache.clear(applicationContext)
+                PendingSupabaseCache.clear(applicationContext)
             }
 
             phase = "health-connect-read"
@@ -56,23 +55,16 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
             phase = "local-cache"
             SyncDiagnostics.phase(applicationContext, diagnostic, phase)
             withContext(Dispatchers.IO) {
-                DriveClient.prepareAndCacheSnapshot(applicationContext, compactSnapshot)
+                SupabaseDirectClient.prepareAndCache(applicationContext, compactSnapshot)
             }
 
-            phase = "drive-write"
+            phase = "supabase-upload"
             SyncDiagnostics.phase(applicationContext, diagnostic, phase)
             withContext(Dispatchers.IO) {
-                DriveClient.flushPending(applicationContext)
-                    ?: throw IllegalStateException("Prepared Drive payload disappeared")
+                SupabaseDirectClient.flushPending(applicationContext)
+                    ?: throw IllegalStateException("Prepared Supabase payload disappeared")
             }
-
-            phase = "drive-verify"
-            SyncDiagnostics.phase(applicationContext, diagnostic, phase)
-            DriveWriteVerifier.awaitRecordedAt(
-                applicationContext,
-                compactSnapshot.recordedAt
-            )
-            PendingDriveCache.clear(applicationContext)
+            PendingSupabaseCache.clear(applicationContext)
 
             val successAt = ZonedDateTime.now().toString()
             AutoSyncState.recordSuccess(applicationContext, successAt)
