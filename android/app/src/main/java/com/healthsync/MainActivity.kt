@@ -102,7 +102,7 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<Button>(R.id.btnConnectDrive).setOnClickListener {
             try {
-                updateStatus("Choose Google Drive and save as health_data.json.")
+                updateStatus("Select the EXISTING health_data.json used by the dashboard. Do not create a new file.")
                 @Suppress("DEPRECATION")
                 startActivityForResult(createDriveFileIntent(), RC_DRIVE_FILE)
             } catch (e: ActivityNotFoundException) {
@@ -199,9 +199,22 @@ class MainActivity : AppCompatActivity() {
         if (requestCode == RC_DRIVE_FILE) {
             val uri = data?.data
             if (resultCode == RESULT_OK && uri != null) {
-                DriveClient.saveFileUri(this, uri, data.flags)
-                updateStatus("Google Drive file connected.\nYour file: health_data.json")
-                refreshStatusDisplay()
+                try {
+                    val info = DriveClient.saveExistingFileUri(this, uri, data.flags)
+                    updateStatus(
+                        "Existing Drive file connected.\n" +
+                            "File: ${info.displayName ?: "health_data.json"}\n" +
+                            "History snapshots: ${info.snapshotCount}\n" +
+                            "Last data: ${info.lastUpdated ?: "unknown"}"
+                    )
+                    if (AutoSyncState.isEnabled(this)) {
+                        SyncWorker.schedule(this, AutoSyncState.intervalMinutes(this))
+                        SyncWorker.runOnce(this, trigger = "drive-rebind")
+                    }
+                    refreshStatusDisplay()
+                } catch (e: Exception) {
+                    updateStatus("Drive file rejected: ${e.message ?: "invalid file"}")
+                }
             } else {
                 updateStatus("Google Drive file selection cancelled.")
             }
@@ -268,7 +281,11 @@ class MainActivity : AppCompatActivity() {
 
             statusText.text = buildString {
                 appendLine("Health Connect: ${healthStatusText(healthAvailability, hasHealth)}")
-                appendLine("Google Drive: ${if (hasDriveFile) "File connected" else "Tap button below"}")
+                appendLine("Google Drive: ${if (hasDriveFile) "Existing file connected" else "Select existing file"}")
+                DriveClient.selectedFileInfo(this@MainActivity)?.let { info ->
+                    appendLine("Drive history: ${info.snapshotCount} snapshots")
+                    info.lastUpdated?.let { appendLine("Drive file last data: $it") }
+                }
                 appendLine("Primary wearable: Zepp/Amazfit")
                 appendLine("Auto Sync request: ${if (autoSyncEnabled) "Every ${intervalLabel(interval)} (best effort)" else "Off"}")
                 appendLine("Worker: ${workerState?.name ?: if (autoSyncEnabled) "Pending" else "Off"}")
@@ -332,10 +349,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun createDriveFileIntent(): Intent {
-        return Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+        return Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "application/json"
-            putExtra(Intent.EXTRA_TITLE, "health_data.json")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
             addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
