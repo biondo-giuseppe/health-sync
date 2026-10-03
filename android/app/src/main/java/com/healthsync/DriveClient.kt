@@ -94,8 +94,8 @@ object DriveClient {
     }
 
     fun prepareAndCacheSnapshot(context: Context, snapshot: HealthSnapshot) {
-        val summaryEntry = snapshotToJson(snapshot, includeRawRecords = false)
-        val fullEntry = snapshotToJson(snapshot, includeRawRecords = true)
+        val summaryEntry = snapshotToJsonObject(snapshot, includeRawRecords = false)
+        val fullEntry = snapshotToJsonObject(snapshot, includeRawRecords = true)
         val uri = fileUri(context)
             ?: throw Exception("Google Drive file not connected. Tap 'Connect Google Drive' first.")
 
@@ -168,7 +168,7 @@ object DriveClient {
         } ?: throw Exception("Could not open $FILE_NAME for writing.")
     }
 
-    private fun snapshotToJson(snapshot: HealthSnapshot, includeRawRecords: Boolean): JSONObject {
+    fun snapshotToJsonObject(snapshot: HealthSnapshot, includeRawRecords: Boolean): JSONObject {
         return JSONObject().apply {
             put("date", LocalDate.now().toString())
             put("recorded_at", snapshot.recordedAt)
