@@ -2,7 +2,7 @@ name: Android CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, fix/health-sync-1.1.6-drive-binding]
   pull_request:
     branches: [main]
   workflow_dispatch:
