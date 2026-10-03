@@ -278,7 +278,7 @@ class MainActivity : AppCompatActivity() {
                 appendLine("Worker: ${workerState?.name ?: if (autoSyncEnabled) "Pending" else "Off"}")
                 if (autoSyncEnabled && stale) appendLine("Sync status: stale — recovery requested")
                 else if (autoSyncEnabled && age != null) appendLine("Sync status: OK · ${age} min ago")
-                AutoSyncState.lastSuccess(this@MainActivity)?.let { appendLine("Last success: $it") }
+                AutoSyncState.lastSuccess(this@MainActivity)?.let { appendLine("Last success: $it") }\n                AutoSyncState.lastAttempt(this@MainActivity)?.let { appendLine("Last attempt: $it") }\n                AutoSyncState.lastStage(this@MainActivity)?.let { appendLine("Technical stage: $it") }
                 AutoSyncState.lastError(this@MainActivity)?.let { appendLine("Last error: $it") }
             }
         }
