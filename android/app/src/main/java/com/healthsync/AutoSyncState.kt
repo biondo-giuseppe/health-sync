@@ -10,6 +10,8 @@ object AutoSyncState {
     private const val KEY_INTERVAL_MINUTES = "auto_sync_interval_minutes"
     private const val KEY_LAST_SUCCESS = "last_sync_success"
     private const val KEY_LAST_ERROR = "last_sync_error"
+    private const val KEY_LAST_ATTEMPT = "last_sync_attempt"
+    private const val KEY_LAST_STAGE = "last_sync_stage"
 
     const val DEFAULT_INTERVAL_MINUTES = 15L
     val ALLOWED_INTERVALS = setOf(15L, 30L, 60L, 480L)
@@ -34,6 +36,13 @@ object AutoSyncState {
         prefs(context).edit().putLong(KEY_INTERVAL_MINUTES, minutes).apply()
     }
 
+    fun recordAttempt(context: Context, timestamp: String, stage: String) {
+        prefs(context).edit()
+            .putString(KEY_LAST_ATTEMPT, timestamp)
+            .putString(KEY_LAST_STAGE, stage.take(80))
+            .apply()
+    }
+
     fun recordSuccess(context: Context, timestamp: String) {
         prefs(context).edit()
             .putString(KEY_LAST_SUCCESS, timestamp)
@@ -50,6 +59,10 @@ object AutoSyncState {
     fun lastSuccess(context: Context): String? = prefs(context).getString(KEY_LAST_SUCCESS, null)
 
     fun lastError(context: Context): String? = prefs(context).getString(KEY_LAST_ERROR, null)
+
+    fun lastAttempt(context: Context): String? = prefs(context).getString(KEY_LAST_ATTEMPT, null)
+
+    fun lastStage(context: Context): String? = prefs(context).getString(KEY_LAST_STAGE, null)
 
     fun minutesSinceLastSuccess(context: Context): Long? {
         val value = lastSuccess(context) ?: return null
