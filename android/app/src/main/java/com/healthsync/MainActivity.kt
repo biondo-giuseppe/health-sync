@@ -133,16 +133,11 @@ class MainActivity : AppCompatActivity() {
                     }
                     AutoSyncState.recordSuccess(this@MainActivity, ZonedDateTime.now().toString())
                     updateStatus(
-                        "Synced to Drive!
-" +
-                            "Primary source: ${sourceLabel(snapshot.selectedSummaryOrigin)}
-" +
-                            "Steps: ${snapshot.steps ?: "--"}
-" +
-                            "HR: ${snapshot.heartRateAvg ?: "--"} bpm
-" +
-                            "Calories: ${snapshot.caloriesTotal ?: "--"} kcal
-" +
+                        "Synced to Drive!\n" +
+                            "Primary source: ${sourceLabel(snapshot.selectedSummaryOrigin)}\n" +
+                            "Steps: ${snapshot.steps ?: "--"}\n" +
+                            "HR: ${snapshot.heartRateAvg ?: "--"} bpm\n" +
+                            "Calories: ${snapshot.caloriesTotal ?: "--"} kcal\n" +
                             "Sleep: ${snapshot.sleepDurationMinutes?.let { "${it / 60}h ${it % 60}m" } ?: "--"}"
                     )
                 } catch (e: Exception) {
@@ -211,8 +206,7 @@ class MainActivity : AppCompatActivity() {
             val uri = data?.data
             if (resultCode == RESULT_OK && uri != null) {
                 DriveClient.saveFileUri(this, uri, data.flags)
-                updateStatus("Google Drive file connected.
-Your file: health_data.json")
+                updateStatus("Google Drive file connected.\nYour file: health_data.json")
                 refreshStatusDisplay()
             } else {
                 updateStatus("Google Drive file selection cancelled.")
@@ -318,8 +312,7 @@ Your file: health_data.json")
             startActivity(healthManager.managePermissionsIntent())
         } catch (e: ActivityNotFoundException) {
             updateStatus(
-                "Open Health Connect settings manually:
-" +
+                "Open Health Connect settings manually:\n" +
                     "Settings > Security & privacy > Privacy > Health Connect > App permissions > Health Sync"
             )
         }
