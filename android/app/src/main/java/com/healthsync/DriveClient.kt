@@ -3,6 +3,7 @@ package com.healthsync
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.provider.OpenableColumns
 import org.json.JSONObject
 import java.time.LocalDate
 
@@ -17,7 +18,25 @@ object DriveClient {
         return fileUri(context) != null
     }
 
-    fun saveFileUri(context: Context, uri: Uri, flags: Int) {
+    data class SelectedFileInfo(
+        val displayName: String?,
+        val sizeBytes: Long?,
+        val lastUpdated: String?,
+        val snapshotCount: Int,
+    )
+
+    fun saveExistingFileUri(context: Context, uri: Uri, flags: Int): SelectedFileInfo {
+        val info = inspectExistingFile(context, uri)
+        require(info.displayName == null || info.displayName == FILE_NAME) {
+            "Select the existing $FILE_NAME file."
+        }
+        require((info.sizeBytes ?: 1L) > 0L) {
+            "The selected $FILE_NAME is empty. Select the existing file with history."
+        }
+        require(info.snapshotCount > 0) {
+            "The selected file has no Health Sync history. Select the existing $FILE_NAME used by the dashboard."
+        }
+
         val persistFlags = flags and (
             Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
         )
@@ -26,9 +45,55 @@ object DriveClient {
             .edit()
             .putString(KEY_FILE_URI, uri.toString())
             .apply()
+        PendingDriveCache.clear(context)
+        return info
+    }
+
+    fun selectedFileInfo(context: Context): SelectedFileInfo? {
+        val uri = fileUri(context) ?: return null
+        return runCatching { inspectExistingFile(context, uri) }.getOrNull()
+    }
+
+    private fun inspectExistingFile(context: Context, uri: Uri): SelectedFileInfo {
+        var displayName: String? = null
+        var sizeBytes: Long? = null
+        context.contentResolver.query(
+            uri,
+            arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+                if (nameIndex >= 0 && !cursor.isNull(nameIndex)) displayName = cursor.getString(nameIndex)
+                if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) sizeBytes = cursor.getLong(sizeIndex)
+            }
+        }
+
+        val text = context.contentResolver.openInputStream(uri)?.use { input ->
+            input.bufferedReader().readText()
+        }.orEmpty()
+        require(text.isNotBlank()) { "The selected file is empty." }
+        val json = JSONObject(text)
+        val snapshots = json.optJSONArray("snapshots")
+        val profile = json.optJSONObject("profile")
+        return SelectedFileInfo(
+            displayName = displayName,
+            sizeBytes = sizeBytes,
+            lastUpdated = profile?.optString("last_updated")?.takeIf { it.isNotBlank() },
+            snapshotCount = snapshots?.length() ?: 0,
+        )
     }
 
     fun syncSnapshot(context: Context, snapshot: HealthSnapshot) {
+        prepareAndCacheSnapshot(context, snapshot)
+        flushPending(context)
+        PendingDriveCache.clear(context)
+    }
+
+    fun prepareAndCacheSnapshot(context: Context, snapshot: HealthSnapshot) {
         val summaryEntry = snapshotToJson(snapshot, includeRawRecords = false)
         val fullEntry = snapshotToJson(snapshot, includeRawRecords = true)
         val uri = fileUri(context)
@@ -47,8 +112,19 @@ object DriveClient {
             }
         }
         updated.put("latest_full_export", fullEntry)
+        PendingDriveCache.save(context, updated.toString(2))
+    }
 
-        writeFile(context, uri, updated)
+    fun flushPending(context: Context): String? {
+        val pending = PendingDriveCache.read(context) ?: return null
+        val uri = fileUri(context)
+            ?: throw Exception("Google Drive file not connected. Tap 'Connect Google Drive' first.")
+        val json = JSONObject(pending)
+        val recordedAt = json.optJSONObject("latest_full_export")?.optString("recorded_at")
+            ?.takeIf { it.isNotBlank() }
+            ?: throw IllegalStateException("Pending Drive payload has no recorded_at")
+        writeRawFile(context, uri, pending)
+        return recordedAt
     }
 
     private fun fileUri(context: Context): Uri? {
@@ -83,10 +159,11 @@ object DriveClient {
         return if (text.isBlank()) null else JSONObject(text)
     }
 
-    private fun writeFile(context: Context, uri: Uri, content: JSONObject) {
+    private fun writeRawFile(context: Context, uri: Uri, content: String) {
         context.contentResolver.openOutputStream(uri, "wt")?.use { output ->
             output.writer().use { writer ->
-                writer.write(content.toString(2))
+                writer.write(content)
+                writer.flush()
             }
         } ?: throw Exception("Could not open $FILE_NAME for writing.")
     }
@@ -119,6 +196,8 @@ object DriveClient {
                 put("note", "Audit-only total across all Health Connect origins. Do not use this for card comparison when selected_summary_origin is present.")
             })
             snapshot.steps?.let { put("steps", it) }
+            snapshot.zeppStepsLastModifiedAt?.let { put("steps_source_last_modified_at", it) }
+            snapshot.zeppStepsLatestEndAt?.let { put("steps_source_latest_record_end_at", it) }
             snapshot.caloriesActive?.let { put("calories_active_kcal", it) }
             snapshot.caloriesTotal?.let { put("calories_total_kcal", it) }
             snapshot.heartRateAvg?.let { put("heart_rate_sample_avg_bpm", it) }
