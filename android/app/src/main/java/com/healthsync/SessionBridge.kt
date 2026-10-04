@@ -28,6 +28,7 @@ object SessionBridge {
     private const val PAIR_URL = "https://kmxwmoagqwmitaripxrp.supabase.co/functions/v1/health-sync-direct"
     private const val SAVE_URL = "https://kmxwmoagqwmitaripxrp.supabase.co/functions/v1/private-session-ingest"
     private const val HR_URL = "https://kmxwmoagqwmitaripxrp.supabase.co/functions/v1/private-session-heart-rate"
+    private const val RECOVER_URL = "https://kmxwmoagqwmitaripxrp.supabase.co/functions/v1/private-session-recover-target"
     private val http = OkHttpClient()
 
     fun isLinked(context: Context): Boolean =
