@@ -226,14 +226,12 @@ class MainActivity : AppCompatActivity() {
                         wellbeing = score(wellbeingSeek),
                     )
                     val sent = SessionBridge.send(this@MainActivity, summary)
-                    if (summary.heartRateAvg == null || summary.heartRateSamples <= 0) {
-                        HeartRateRetryWorker.schedule(
-                            this@MainActivity,
-                            sent.id,
-                            summary.startedAt,
-                            summary.endedAt,
-                        )
-                    }
+                    HeartRateRetryWorker.schedule(
+                        this@MainActivity,
+                        sent.id,
+                        summary.startedAt,
+                        summary.endedAt,
+                    )
                     feedbackContainer.visibility = View.GONE
                     renderSummary(summary, sent.status)
                     sessionStatus.text =
