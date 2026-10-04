@@ -29,6 +29,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var startButton: Button
     private lateinit var endButton: Button
     private lateinit var saveButton: Button
+    private lateinit var recoverButton: Button
     private lateinit var feedbackContainer: LinearLayout
     private lateinit var intensitySeek: SeekBar
     private lateinit var controlSeek: SeekBar
@@ -60,6 +61,7 @@ class MainActivity : AppCompatActivity() {
         startButton = findViewById(R.id.btnStartSession)
         endButton = findViewById(R.id.btnEndSession)
         saveButton = findViewById(R.id.btnSaveSession)
+        recoverButton = findViewById(R.id.btnRecoverSession)
         feedbackContainer = findViewById(R.id.feedbackContainer)
         intensitySeek = findViewById(R.id.seekIntensity)
         controlSeek = findViewById(R.id.seekControl)
@@ -72,7 +74,7 @@ class MainActivity : AppCompatActivity() {
 
         val versionName = runCatching {
             packageManager.getPackageInfo(packageName, 0).versionName
-        }.getOrNull() ?: "1.2.3"
+        }.getOrNull() ?: "1.2.4"
         findViewById<TextView>(R.id.versionText).text = "Version $versionName"
 
         bindSeek(intensitySeek, intensityValue)
