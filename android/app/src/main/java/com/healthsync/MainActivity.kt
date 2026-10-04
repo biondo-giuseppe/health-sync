@@ -72,7 +72,7 @@ class MainActivity : AppCompatActivity() {
 
         val versionName = runCatching {
             packageManager.getPackageInfo(packageName, 0).versionName
-        }.getOrNull() ?: "1.2.2"
+        }.getOrNull() ?: "1.2.3"
         findViewById<TextView>(R.id.versionText).text = "Version $versionName"
 
         bindSeek(intensitySeek, intensityValue)

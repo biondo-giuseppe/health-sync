@@ -23,12 +23,17 @@ class HeartRateRetryWorker(
             ?: return Result.failure()
 
         return try {
-            val hr = PersonalSessionStore.readHeartRate(applicationContext, start, end)
-            if (hr.avg == null || hr.samples <= 0) {
+            val contextHr = PersonalSessionStore.readHeartRateContext(applicationContext, start, end)
+            val hasAny =
+                contextHr.session.samples > 0 ||
+                contextHr.pre.samples > 0 ||
+                contextHr.post.samples > 0
+
+            if (!hasAny) {
                 if (runAttemptCount >= 5) Result.failure() else Result.retry()
             } else {
-                SessionBridge.sendHeartRateUpdate(applicationContext, sessionId, hr)
-                Result.success()
+                SessionBridge.sendHeartRateUpdate(applicationContext, sessionId, contextHr)
+                if (contextHr.session.samples <= 0 && runAttemptCount < 5) Result.retry() else Result.success()
             }
         } catch (_: Exception) {
             if (runAttemptCount >= 5) Result.failure() else Result.retry()
