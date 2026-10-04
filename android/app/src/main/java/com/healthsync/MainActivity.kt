@@ -2,8 +2,10 @@ package com.healthsync
 
 import android.content.ActivityNotFoundException
 import android.os.Bundle
+import android.view.View
 import android.widget.Button
 import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
@@ -26,6 +28,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var pairButton: Button
     private lateinit var startButton: Button
     private lateinit var endButton: Button
+    private lateinit var saveButton: Button
+    private lateinit var feedbackContainer: LinearLayout
     private lateinit var intensitySeek: SeekBar
     private lateinit var controlSeek: SeekBar
     private lateinit var energySeek: SeekBar
@@ -55,6 +59,8 @@ class MainActivity : AppCompatActivity() {
         pairButton = findViewById(R.id.btnPair)
         startButton = findViewById(R.id.btnStartSession)
         endButton = findViewById(R.id.btnEndSession)
+        saveButton = findViewById(R.id.btnSaveSession)
+        feedbackContainer = findViewById(R.id.feedbackContainer)
         intensitySeek = findViewById(R.id.seekIntensity)
         controlSeek = findViewById(R.id.seekControl)
         energySeek = findViewById(R.id.seekEnergy)
@@ -66,7 +72,7 @@ class MainActivity : AppCompatActivity() {
 
         val versionName = runCatching {
             packageManager.getPackageInfo(packageName, 0).versionName
-        }.getOrNull() ?: "1.2.1"
+        }.getOrNull() ?: "1.2.2"
         findViewById<TextView>(R.id.versionText).text = "Version $versionName"
 
         bindSeek(intensitySeek, intensityValue)
@@ -112,7 +118,7 @@ class MainActivity : AppCompatActivity() {
                     linkStatus.text = "○ Salute non collegata"
                     sessionStatus.text = e.message ?: "Collegamento non riuscito."
                 } finally {
-                    pairButton.isEnabled = true
+                    refreshLinkStatus()
                 }
             }
         }
@@ -129,8 +135,11 @@ class MainActivity : AppCompatActivity() {
                     return@launch
                 }
 
+                resetFeedback()
+                feedbackContainer.visibility = View.GONE
                 val started = PersonalSessionStore.start(this@MainActivity)
                 sessionStatus.text = "Sessione attiva dalle ${formatTime(started)}"
+                sessionSummary.text = "Al termine potrai inserire la tua valutazione."
                 resultBadge.text = "IN CORSO"
                 resultBadge.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.status_blue))
                 startButton.isEnabled = false
@@ -142,27 +151,49 @@ class MainActivity : AppCompatActivity() {
             lifecycleScope.launch {
                 try {
                     endButton.isEnabled = false
-                    sessionStatus.text = "Leggo i dati e aggiorno Salute…"
+                    sessionStatus.text = "Sessione terminata. Leggo i dati disponibili…"
+                    val draft = PersonalSessionStore.stopForFeedback(this@MainActivity)
+                    showDraftForFeedback(draft)
+                } catch (e: Exception) {
+                    sessionStatus.text = "Impossibile terminare la sessione: ${e.message ?: "errore"}"
+                    endButton.isEnabled = true
+                }
+            }
+        }
 
-                    val summary = PersonalSessionStore.finish(
+        saveButton.setOnClickListener {
+            lifecycleScope.launch {
+                try {
+                    saveButton.isEnabled = false
+                    sessionStatus.text = "Salvo la sessione in Salute…"
+                    val summary = PersonalSessionStore.completeDraft(
                         context = this@MainActivity,
                         intensity = score(intensitySeek),
                         control = score(controlSeek),
                         energy = score(energySeek),
                         wellbeing = score(wellbeingSeek),
                     )
-
-                    val remoteStatus = SessionBridge.send(this@MainActivity, summary)
-                    renderSummary(summary, remoteStatus)
-                    sessionStatus.text = "Sessione salvata in Salute"
-                } catch (e: Exception) {
-                    val last = PersonalSessionStore.lastSummary(this@MainActivity)
-                    if (last != null) renderSummary(last, null)
-                    sessionStatus.text = "Sessione conservata sul telefono. Invio non riuscito: ${e.message ?: "errore"}"
-                } finally {
+                    val sent = SessionBridge.send(this@MainActivity, summary)
+                    if (summary.heartRateAvg == null || summary.heartRateSamples <= 0) {
+                        HeartRateRetryWorker.schedule(
+                            this@MainActivity,
+                            sent.id,
+                            summary.startedAt,
+                            summary.endedAt,
+                        )
+                    }
+                    feedbackContainer.visibility = View.GONE
+                    renderSummary(summary, sent.status)
+                    sessionStatus.text =
+                        if (summary.heartRateAvg == null)
+                            "Sessione salvata. Battito in attesa di sincronizzazione."
+                        else
+                            "Sessione salvata in Salute"
                     startButton.isEnabled = true
                     endButton.isEnabled = false
-                    refreshLinkStatus()
+                } catch (e: Exception) {
+                    sessionStatus.text = "Salvataggio non riuscito: ${e.message ?: "errore"}"
+                    saveButton.isEnabled = true
                 }
             }
         }
@@ -196,26 +227,56 @@ class MainActivity : AppCompatActivity() {
 
     private fun score(seek: SeekBar): Int = seek.progress + 1
 
+    private fun resetFeedback() {
+        listOf(intensitySeek, controlSeek, energySeek, wellbeingSeek).forEach { it.progress = 2 }
+        saveButton.isEnabled = true
+    }
+
     private fun restoreSessionState() {
         val active = PersonalSessionStore.activeStart(this)
-        if (active != null) {
-            sessionStatus.text = "Sessione attiva dalle ${formatTime(active)}"
-            resultBadge.text = "IN CORSO"
-            resultBadge.setTextColor(ContextCompat.getColor(this, R.color.status_blue))
-            startButton.isEnabled = false
-            endButton.isEnabled = true
-        } else {
-            startButton.isEnabled = true
-            endButton.isEnabled = false
-            val last = PersonalSessionStore.lastSummary(this)
-            if (last != null) {
-                renderSummary(last, null)
-            } else {
-                resultBadge.text = "PRONTO"
-                resultBadge.setTextColor(ContextCompat.getColor(this, R.color.teal_dark))
-                sessionStatus.text = "Pronto per una nuova sessione."
-                sessionSummary.text = "Durata e battito saranno letti automaticamente."
+        val pending = PersonalSessionStore.pendingDraft(this)
+
+        when {
+            active != null -> {
+                feedbackContainer.visibility = View.GONE
+                sessionStatus.text = "Sessione attiva dalle ${formatTime(active)}"
+                resultBadge.text = "IN CORSO"
+                resultBadge.setTextColor(ContextCompat.getColor(this, R.color.status_blue))
+                startButton.isEnabled = false
+                endButton.isEnabled = true
             }
+            pending != null -> {
+                showDraftForFeedback(pending)
+            }
+            else -> {
+                feedbackContainer.visibility = View.GONE
+                startButton.isEnabled = true
+                endButton.isEnabled = false
+                val last = PersonalSessionStore.lastSummary(this)
+                if (last != null) {
+                    renderSummary(last, null)
+                } else {
+                    resultBadge.text = "PRONTO"
+                    resultBadge.setTextColor(ContextCompat.getColor(this, R.color.teal_dark))
+                    sessionStatus.text = "Pronto per una nuova sessione."
+                    sessionSummary.text = "Durata e battito saranno letti automaticamente."
+                }
+            }
+        }
+    }
+
+    private fun showDraftForFeedback(draft: PersonalSessionDraft) {
+        feedbackContainer.visibility = View.VISIBLE
+        startButton.isEnabled = false
+        endButton.isEnabled = false
+        saveButton.isEnabled = true
+        resultBadge.text = "DA VALUTARE"
+        resultBadge.setTextColor(ContextCompat.getColor(this, R.color.status_blue))
+        sessionStatus.text = "Sessione terminata. Inserisci ora i 4 valori."
+        sessionSummary.text = buildString {
+            appendLine("Durata  ${draft.durationMinutes} min")
+            appendLine("Battito medio  ${draft.heartRateAvg?.let { "$it bpm" } ?: "in attesa"}")
+            append("Poi premi Salva in Salute.")
         }
     }
 
@@ -229,7 +290,7 @@ class MainActivity : AppCompatActivity() {
 
         sessionSummary.text = buildString {
             appendLine("Durata  ${summary.durationMinutes} min")
-            appendLine("Battito medio  ${summary.heartRateAvg?.let { "$it bpm" } ?: "n/d"}")
+            appendLine("Battito medio  ${summary.heartRateAvg?.let { "$it bpm" } ?: "in attesa"}")
             appendLine("Intervallo  ${summary.heartRateMin?.let { "$it" } ?: "n/d"}–${summary.heartRateMax?.let { "$it bpm" } ?: "n/d"}")
             appendLine("Intensità  ${summary.intensity}/5   Controllo  ${summary.control}/5")
             append("Energia  ${summary.energy}/5   Benessere  ${summary.wellbeing}/5")

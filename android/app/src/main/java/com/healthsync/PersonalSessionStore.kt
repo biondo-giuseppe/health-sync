@@ -11,6 +11,23 @@ import java.time.Instant
 import java.time.ZonedDateTime
 import kotlin.math.roundToInt
 
+data class HeartRateSnapshot(
+    val avg: Int?,
+    val min: Int?,
+    val max: Int?,
+    val samples: Int,
+)
+
+data class PersonalSessionDraft(
+    val startedAt: Instant,
+    val endedAt: Instant,
+    val durationMinutes: Int,
+    val heartRateAvg: Int?,
+    val heartRateMin: Int?,
+    val heartRateMax: Int?,
+    val heartRateSamples: Int,
+)
+
 data class PersonalSessionSummary(
     val startedAt: Instant,
     val endedAt: Instant,
@@ -29,6 +46,7 @@ data class PersonalSessionSummary(
 object PersonalSessionStore {
     private const val PREFS = "personal_session"
     private const val KEY_ACTIVE_START = "active_start"
+    private const val KEY_PENDING_DRAFT = "pending_draft"
     private const val KEY_LAST_SUMMARY = "last_summary"
 
     fun activeStart(context: Context): Instant? {
@@ -38,6 +56,7 @@ object PersonalSessionStore {
     }
 
     fun start(context: Context): Instant {
+        clearPendingDraft(context)
         val now = Instant.now()
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
@@ -46,39 +65,65 @@ object PersonalSessionStore {
         return now
     }
 
-    fun clearActive(context: Context) {
+    suspend fun stopForFeedback(context: Context): PersonalSessionDraft {
+        val start = activeStart(context) ?: error("No active session")
+        val end = Instant.now()
+        val hr = readHeartRate(context, start, end)
+        val draft = PersonalSessionDraft(
+            startedAt = start,
+            endedAt = end,
+            durationMinutes = Duration.between(start, end).toMinutes().coerceAtLeast(1).toInt(),
+            heartRateAvg = hr.avg,
+            heartRateMin = hr.min,
+            heartRateMax = hr.max,
+            heartRateSamples = hr.samples,
+        )
+        saveDraft(context, draft)
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
             .remove(KEY_ACTIVE_START)
             .apply()
+        return draft
     }
 
-    suspend fun finish(
+    fun pendingDraft(context: Context): PersonalSessionDraft? {
+        val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_PENDING_DRAFT, null) ?: return null
+        return runCatching {
+            val j = JSONObject(raw)
+            PersonalSessionDraft(
+                startedAt = Instant.parse(j.getString("started_at")),
+                endedAt = Instant.parse(j.getString("ended_at")),
+                durationMinutes = j.getInt("duration_minutes"),
+                heartRateAvg = j.optIntOrNull("hr_avg"),
+                heartRateMin = j.optIntOrNull("hr_min"),
+                heartRateMax = j.optIntOrNull("hr_max"),
+                heartRateSamples = j.optInt("hr_samples", 0),
+            )
+        }.getOrNull()
+    }
+
+    fun completeDraft(
         context: Context,
         intensity: Int,
         control: Int,
         energy: Int,
         wellbeing: Int,
     ): PersonalSessionSummary {
-        val start = activeStart(context) ?: error("No active session")
-        val end = Instant.now()
-        val hr = readHeartRate(context, start, end)
-        val duration = Duration.between(start, end).toMinutes().coerceAtLeast(1).toInt()
-
+        val draft = pendingDraft(context) ?: error("No session awaiting feedback")
         val status = when {
             wellbeing <= 2 || energy <= 2 || control <= 2 -> "ATTENZIONE"
             intensity >= 4 && control >= 4 && wellbeing >= 4 -> "MIGLIORA"
             else -> "STABILE"
         }
-
         val summary = PersonalSessionSummary(
-            startedAt = start,
-            endedAt = end,
-            durationMinutes = duration,
-            heartRateAvg = hr.avg,
-            heartRateMin = hr.min,
-            heartRateMax = hr.max,
-            heartRateSamples = hr.samples,
+            startedAt = draft.startedAt,
+            endedAt = draft.endedAt,
+            durationMinutes = draft.durationMinutes,
+            heartRateAvg = draft.heartRateAvg,
+            heartRateMin = draft.heartRateMin,
+            heartRateMax = draft.heartRateMax,
+            heartRateSamples = draft.heartRateSamples,
             intensity = intensity,
             control = control,
             energy = energy,
@@ -86,8 +131,13 @@ object PersonalSessionStore {
             status = status,
         )
         saveSummary(context, summary)
-        clearActive(context)
+        clearPendingDraft(context)
         return summary
+    }
+
+    fun clearPendingDraft(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().remove(KEY_PENDING_DRAFT).apply()
     }
 
     fun lastSummary(context: Context): PersonalSessionSummary? {
@@ -128,6 +178,43 @@ object PersonalSessionStore {
         appendLine("local_status=${summary.status}")
     }
 
+    suspend fun readHeartRate(
+        context: Context,
+        start: Instant,
+        end: Instant,
+    ): HeartRateSnapshot {
+        val client = HealthConnectClient.getOrCreate(context)
+        val records = client.readRecords(
+            ReadRecordsRequest(
+                recordType = HeartRateRecord::class,
+                timeRangeFilter = TimeRangeFilter.between(start, end),
+                ascendingOrder = true,
+            )
+        ).records
+        val values = records.flatMap { record -> record.samples.map { it.beatsPerMinute.toInt() } }
+        if (values.isEmpty()) return HeartRateSnapshot(null, null, null, 0)
+        return HeartRateSnapshot(
+            avg = values.average().roundToInt(),
+            min = values.minOrNull(),
+            max = values.maxOrNull(),
+            samples = values.size,
+        )
+    }
+
+    private fun saveDraft(context: Context, d: PersonalSessionDraft) {
+        val json = JSONObject().apply {
+            put("started_at", d.startedAt.toString())
+            put("ended_at", d.endedAt.toString())
+            put("duration_minutes", d.durationMinutes)
+            d.heartRateAvg?.let { put("hr_avg", it) }
+            d.heartRateMin?.let { put("hr_min", it) }
+            d.heartRateMax?.let { put("hr_max", it) }
+            put("hr_samples", d.heartRateSamples)
+        }
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putString(KEY_PENDING_DRAFT, json.toString()).apply()
+    }
+
     private fun saveSummary(context: Context, s: PersonalSessionSummary) {
         val json = JSONObject().apply {
             put("started_at", s.startedAt.toString())
@@ -144,30 +231,7 @@ object PersonalSessionStore {
             put("status", s.status)
         }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit()
-            .putString(KEY_LAST_SUMMARY, json.toString())
-            .apply()
-    }
-
-    private data class HrStats(val avg: Int?, val min: Int?, val max: Int?, val samples: Int)
-
-    private suspend fun readHeartRate(context: Context, start: Instant, end: Instant): HrStats {
-        val client = HealthConnectClient.getOrCreate(context)
-        val records = client.readRecords(
-            ReadRecordsRequest(
-                recordType = HeartRateRecord::class,
-                timeRangeFilter = TimeRangeFilter.between(start, end),
-                ascendingOrder = true,
-            )
-        ).records
-        val values = records.flatMap { record -> record.samples.map { it.beatsPerMinute.toInt() } }
-        if (values.isEmpty()) return HrStats(null, null, null, 0)
-        return HrStats(
-            avg = values.average().roundToInt(),
-            min = values.minOrNull(),
-            max = values.maxOrNull(),
-            samples = values.size,
-        )
+            .edit().putString(KEY_LAST_SUMMARY, json.toString()).apply()
     }
 
     private fun JSONObject.optIntOrNull(name: String): Int? =
