@@ -96,17 +96,25 @@ object SessionBridge {
     suspend fun sendHeartRateUpdate(
         context: Context,
         sessionId: String,
-        heartRate: HeartRateSnapshot,
+        heartRate: HeartRateContext,
     ) = withContext(Dispatchers.IO) {
         val link = linkValue(context) ?: error("Collega prima il dispositivo")
-        require(heartRate.avg != null && heartRate.samples > 0) { "Nessun dato cardiaco disponibile" }
+        val json = JSONObject().put("session_id", sessionId)
 
-        val json = JSONObject()
-            .put("session_id", sessionId)
-            .put("hr_avg_bpm", heartRate.avg)
-            .put("hr_samples", heartRate.samples)
-        heartRate.min?.let { json.put("hr_min_bpm", it) }
-        heartRate.max?.let { json.put("hr_max_bpm", it) }
+        if (heartRate.session.avg != null && heartRate.session.samples > 0) {
+            json.put("hr_avg_bpm", heartRate.session.avg)
+            json.put("hr_samples", heartRate.session.samples)
+            heartRate.session.min?.let { json.put("hr_min_bpm", it) }
+            heartRate.session.max?.let { json.put("hr_max_bpm", it) }
+        }
+        if (heartRate.pre.avg != null && heartRate.pre.samples > 0) {
+            json.put("hr_pre_avg_bpm", heartRate.pre.avg)
+            json.put("hr_pre_samples", heartRate.pre.samples)
+        }
+        if (heartRate.post.avg != null && heartRate.post.samples > 0) {
+            json.put("hr_post_avg_bpm", heartRate.post.avg)
+            json.put("hr_post_samples", heartRate.post.samples)
+        }
 
         val request = Request.Builder()
             .url(HR_URL)
