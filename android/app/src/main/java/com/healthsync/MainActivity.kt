@@ -1,379 +1,223 @@
 package com.healthsync
 
 import android.content.ActivityNotFoundException
-import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
-import android.os.PowerManager
-import android.provider.Settings
-import android.view.View
-import android.view.ViewGroup
-import android.view.animation.AnimationUtils
-import android.widget.ArrayAdapter
 import android.widget.Button
-import android.widget.Spinner
+import android.widget.SeekBar
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.health.connect.client.PermissionController
 import androidx.lifecycle.lifecycleScope
-import androidx.work.WorkManager
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import java.time.ZoneId
 import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var healthManager: PreferredHealthConnectManager
-    private lateinit var statusText: TextView
-    private lateinit var scheduleButton: Button
-    private lateinit var intervalSpinner: Spinner
-    private lateinit var diagnosticsText: TextView
-    private var staleRecoveryRequestedThisResume = false
-
-    private val intervalOptions = listOf(
-        "15 minutes" to 15L,
-        "30 minutes" to 30L,
-        "1 hour" to 60L,
-        "8 hours" to 480L,
-    )
+    private lateinit var healthManager: PrivateHealthManager
+    private lateinit var sessionStatus: TextView
+    private lateinit var sessionSummary: TextView
+    private lateinit var resultBadge: TextView
+    private lateinit var startButton: Button
+    private lateinit var endButton: Button
+    private lateinit var analyzeButton: Button
+    private lateinit var intensitySeek: SeekBar
+    private lateinit var controlSeek: SeekBar
+    private lateinit var energySeek: SeekBar
+    private lateinit var wellbeingSeek: SeekBar
+    private lateinit var intensityValue: TextView
+    private lateinit var controlValue: TextView
+    private lateinit var energyValue: TextView
+    private lateinit var wellbeingValue: TextView
 
     private val healthPermissionLauncher = registerForActivityResult(
         PermissionController.createRequestPermissionResultContract()
-    ) { granted ->
-        lifecycleScope.launch {
-            if (healthManager.hasPermissions()) {
-                updateStatus("Health Connect connected.")
-            } else if (granted.isNotEmpty()) {
-                updateStatus("Health Connect partially connected. Some health fields may show blank.")
-            } else {
-                updateStatus("Health Connect permissions are still off. Opening Health Connect settings...")
-                openHealthConnectPermissions()
-            }
-        }
-    }
+    ) { refreshHealthStatus() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        AutoSyncState.setEnabled(this, false)
+        SyncWorker.stop(this)
+        healthManager = PrivateHealthManager(this)
 
-        healthManager = PreferredHealthConnectManager(this)
-        statusText = findViewById(R.id.statusText)
-        scheduleButton = findViewById(R.id.btnSchedule)
-        intervalSpinner = findViewById(R.id.syncIntervalSpinner)
-        diagnosticsText = findViewById(R.id.diagnosticsText)
+        sessionStatus = findViewById(R.id.sessionStatus)
+        sessionSummary = findViewById(R.id.sessionSummary)
+        resultBadge = findViewById(R.id.resultBadge)
+        startButton = findViewById(R.id.btnStartSession)
+        endButton = findViewById(R.id.btnEndSession)
+        analyzeButton = findViewById(R.id.btnAnalyze)
+        intensitySeek = findViewById(R.id.seekIntensity)
+        controlSeek = findViewById(R.id.seekControl)
+        energySeek = findViewById(R.id.seekEnergy)
+        wellbeingSeek = findViewById(R.id.seekWellbeing)
+        intensityValue = findViewById(R.id.valueIntensity)
+        controlValue = findViewById(R.id.valueControl)
+        energyValue = findViewById(R.id.valueEnergy)
+        wellbeingValue = findViewById(R.id.valueWellbeing)
+
         val versionName = runCatching {
             packageManager.getPackageInfo(packageName, 0).versionName
-        }.getOrNull() ?: "1.1.0"
+        }.getOrNull() ?: "1.2.0"
         findViewById<TextView>(R.id.versionText).text = "Version $versionName"
 
-        findViewById<ViewGroup>(R.id.contentStack).scheduleLayoutAnimation()
-        findViewById<View>(R.id.contentRoot).animate().alpha(1f).setDuration(260).start()
-
-        configureIntervalSpinner()
-
-        if (AutoSyncState.isEnabled(this)) {
-            SyncWorker.ensureScheduled(this, AutoSyncState.intervalMinutes(this))
-        }
-        refreshStatusDisplay()
+        bindSeek(intensitySeek, intensityValue)
+        bindSeek(controlSeek, controlValue)
+        bindSeek(energySeek, energyValue)
+        bindSeek(wellbeingSeek, wellbeingValue)
 
         findViewById<Button>(R.id.btnConnectHealth).setOnClickListener {
             lifecycleScope.launch {
                 when (healthManager.availability()) {
                     HealthConnectManager.Availability.AVAILABLE -> {
-                        try {
-                            if (!healthManager.hasPermissions()) {
-                                healthPermissionLauncher.launch(healthManager.permissions)
-                            } else {
-                                updateStatus("Health Connect already connected.")
-                            }
-                        } catch (e: Exception) {
-                            updateStatus("Health Connect connection failed.")
-                        }
+                        if (!healthManager.hasPermissions()) healthPermissionLauncher.launch(healthManager.permissions)
+                        else refreshHealthStatus()
                     }
-                    HealthConnectManager.Availability.INSTALL_OR_UPDATE_REQUIRED -> openHealthConnectInstall()
-                    HealthConnectManager.Availability.UNAVAILABLE -> updateStatus(
-                        "Health Connect is not available on this phone. Update Android and Google Play services, then try again."
-                    )
+                    HealthConnectManager.Availability.INSTALL_OR_UPDATE_REQUIRED -> {
+                        try { startActivity(healthManager.installOrUpdateIntent()) }
+                        catch (_: ActivityNotFoundException) { sessionStatus.text = "Health Connect va installato o aggiornato." }
+                    }
+                    HealthConnectManager.Availability.UNAVAILABLE -> sessionStatus.text = "Health Connect non disponibile su questo telefono."
                 }
             }
         }
 
-        findViewById<Button>(R.id.btnConnectDrive).setOnClickListener {
-            try {
-                updateStatus("Select the EXISTING health_data.json used by the dashboard. Do not create a new file.")
-                @Suppress("DEPRECATION")
-                startActivityForResult(createDriveFileIntent(), RC_DRIVE_FILE)
-            } catch (e: ActivityNotFoundException) {
-                updateStatus("No file picker found. Install Google Drive and try again.")
-            }
-        }
-
-        findViewById<Button>(R.id.btnSyncNow).setOnClickListener {
+        startButton.setOnClickListener {
             lifecycleScope.launch {
                 if (!healthManager.hasPermissions()) {
-                    updateStatus("Connect Health Connect first.")
-                    openHealthConnectPermissions()
+                    sessionStatus.text = "Prima collega Health Connect."
+                    healthPermissionLauncher.launch(healthManager.permissions)
                     return@launch
                 }
-                if (!DriveClient.hasFile(this@MainActivity)) {
-                    updateStatus("Connect Google Drive first.")
-                    return@launch
-                }
-                updateStatus("Syncing to Google Drive...")
+                val started = PersonalSessionStore.start(this@MainActivity)
+                sessionStatus.text = "Sessione attiva dalle ${formatTime(started)}"
+                resultBadge.text = "IN CORSO"
+                resultBadge.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.status_blue))
+                startButton.isEnabled = false
+                endButton.isEnabled = true
+                analyzeButton.isEnabled = false
+            }
+        }
+
+        endButton.setOnClickListener {
+            lifecycleScope.launch {
                 try {
-                    val snapshot = healthManager.readTodaySnapshot()
-                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        DriveClient.syncSnapshot(applicationContext, snapshot)
-                    }
-                    AutoSyncState.recordSuccess(this@MainActivity, ZonedDateTime.now().toString())
-                    updateStatus(
-                        "Synced to Drive!\n" +
-                            "Primary source: ${sourceLabel(snapshot.selectedSummaryOrigin)}\n" +
-                            "Steps: ${snapshot.steps ?: "--"}\n" +
-                            "HR: ${snapshot.heartRateAvg ?: "--"} bpm\n" +
-                            "Calories: ${snapshot.caloriesTotal ?: "--"} kcal\n" +
-                            "Sleep: ${snapshot.sleepDurationMinutes?.let { "${it / 60}h ${it % 60}m" } ?: "--"}"
+                    sessionStatus.text = "Sto leggendo i dati della sessione..."
+                    val summary = PersonalSessionStore.finish(
+                        context = this@MainActivity,
+                        intensity = score(intensitySeek),
+                        control = score(controlSeek),
+                        energy = score(energySeek),
+                        wellbeing = score(wellbeingSeek),
                     )
+                    renderSummary(summary)
                 } catch (e: Exception) {
-                    AutoSyncState.recordError(this@MainActivity, e.message ?: e.javaClass.simpleName)
-                    updateStatus("Sync failed. Check connections and try again.")
+                    sessionStatus.text = "Impossibile chiudere la sessione: ${e.message ?: "errore"}"
                 }
             }
         }
 
-        scheduleButton.setOnClickListener {
-            lifecycleScope.launch {
-                if (AutoSyncState.isEnabled(this@MainActivity)) {
-                    AutoSyncState.setEnabled(this@MainActivity, false)
-                    SyncWorker.stop(this@MainActivity)
-                    refreshStatusDisplay()
-                    return@launch
-                }
-
-                if (!healthManager.hasPermissions()) {
-                    updateStatus("Connect Health Connect before starting auto sync.")
-                    openHealthConnectPermissions()
-                    return@launch
-                }
-                if (!DriveClient.hasFile(this@MainActivity)) {
-                    updateStatus("Connect Google Drive before starting auto sync.")
-                    return@launch
-                }
-
-                val minutes = selectedIntervalMinutes()
-                AutoSyncState.setIntervalMinutes(this@MainActivity, minutes)
-                AutoSyncState.setEnabled(this@MainActivity, true)
-                SyncWorker.schedule(this@MainActivity, minutes)
-                SyncWorker.runOnce(this@MainActivity, trigger = "auto-sync-start")
-                requestBatteryOptimizationExemption()
-                refreshStatusDisplay()
+        analyzeButton.setOnClickListener {
+            val summary = PersonalSessionStore.lastSummary(this) ?: return@setOnClickListener
+            val payload = buildString {
+                appendLine("Analizza questa sessione personale in modo riservato.")
+                appendLine("Valuta andamento, eventuali pattern utili e suggerimenti pratici per benessere, controllo e durata.")
+                appendLine("Non formulare diagnosi mediche.")
+                appendLine()
+                append(PersonalSessionStore.shareText(summary))
             }
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, payload)
+            }
+            startActivity(Intent.createChooser(intent, "Analizza"))
         }
+
+        refreshHealthStatus()
+        restoreSessionState()
     }
 
     override fun onResume() {
         super.onResume()
-        staleRecoveryRequestedThisResume = false
-        if (::healthManager.isInitialized && ::statusText.isInitialized) {
-            recoverStaleSyncIfNeeded()
-            refreshStatusDisplay()
+        if (::healthManager.isInitialized) {
+            refreshHealthStatus()
+            restoreSessionState()
         }
     }
 
-    private fun recoverStaleSyncIfNeeded() {
-        if (staleRecoveryRequestedThisResume) return
-        if (!AutoSyncState.isEnabled(this)) return
-        if (!DriveClient.hasFile(this)) return
-        if (!AutoSyncState.isStale(this)) return
-
-        staleRecoveryRequestedThisResume = true
-        SyncWorker.runOnce(this, trigger = "stale-on-open")
-    }
-
-    @Deprecated("Uses legacy activity result API for document picker")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        @Suppress("DEPRECATION")
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == RC_DRIVE_FILE) {
-            val uri = data?.data
-            if (resultCode == RESULT_OK && uri != null) {
-                try {
-                    val info = DriveClient.saveExistingFileUri(this, uri, data.flags)
-                    updateStatus(
-                        "Existing Drive file connected.\n" +
-                            "File: ${info.displayName ?: "health_data.json"}\n" +
-                            "History snapshots: ${info.snapshotCount}\n" +
-                            "Last data: ${info.lastUpdated ?: "unknown"}"
-                    )
-                    if (AutoSyncState.isEnabled(this)) {
-                        SyncWorker.schedule(this, AutoSyncState.intervalMinutes(this))
-                        SyncWorker.runOnce(this, trigger = "drive-rebind")
-                    }
-                    refreshStatusDisplay()
-                } catch (e: Exception) {
-                    updateStatus("Drive file rejected: ${e.message ?: "invalid file"}")
-                }
-            } else {
-                updateStatus("Google Drive file selection cancelled.")
+    private fun bindSeek(seek: SeekBar, value: TextView) {
+        seek.max = 4
+        seek.progress = 2
+        value.text = "3/5"
+        seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                value.text = "${progress + 1}/5"
             }
-        }
-    }
-
-    private fun configureIntervalSpinner() {
-        val adapter = ArrayAdapter(
-            this,
-            android.R.layout.simple_spinner_item,
-            intervalOptions.map { it.first }
-        )
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        intervalSpinner.adapter = adapter
-
-        val saved = AutoSyncState.intervalMinutes(this)
-        intervalSpinner.setSelection(intervalOptions.indexOfFirst { it.second == saved }.coerceAtLeast(0))
-
-        intervalSpinner.setOnItemSelectedListener(object : android.widget.AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
-                val minutes = intervalOptions[position].second
-                val current = AutoSyncState.intervalMinutes(this@MainActivity)
-                if (minutes == current) return
-                AutoSyncState.setIntervalMinutes(this@MainActivity, minutes)
-                if (AutoSyncState.isEnabled(this@MainActivity)) {
-                    SyncWorker.schedule(this@MainActivity, minutes)
-                    refreshStatusDisplay()
-                }
-            }
-
-            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
+            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+            override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
         })
     }
 
-    private fun selectedIntervalMinutes(): Long =
-        intervalOptions.getOrNull(intervalSpinner.selectedItemPosition)?.second
-            ?: AutoSyncState.DEFAULT_INTERVAL_MINUTES
+    private fun score(seek: SeekBar): Int = seek.progress + 1
 
-    private fun updateStatus(message: String) {
-        statusText.text = message
-        statusText.startAnimation(AnimationUtils.loadAnimation(this, R.anim.fade_slide_in))
+    private fun restoreSessionState() {
+        val active = PersonalSessionStore.activeStart(this)
+        if (active != null) {
+            sessionStatus.text = "Sessione attiva dalle ${formatTime(active)}"
+            resultBadge.text = "IN CORSO"
+            resultBadge.setTextColor(ContextCompat.getColor(this, R.color.status_blue))
+            startButton.isEnabled = false
+            endButton.isEnabled = true
+            analyzeButton.isEnabled = false
+        } else {
+            startButton.isEnabled = true
+            endButton.isEnabled = false
+            val last = PersonalSessionStore.lastSummary(this)
+            if (last != null) renderSummary(last)
+            else {
+                resultBadge.text = "PRONTO"
+                resultBadge.setTextColor(ContextCompat.getColor(this, R.color.teal_dark))
+                sessionStatus.text = "Pronto per una nuova sessione."
+                sessionSummary.text = "I dati restano locali finché non scegli Analizza."
+                analyzeButton.isEnabled = false
+            }
+        }
     }
 
-    private fun refreshStatusDisplay() {
-        val hasDriveFile = DriveClient.hasFile(this)
-        val autoSyncEnabled = AutoSyncState.isEnabled(this)
-        val interval = AutoSyncState.intervalMinutes(this)
-        val stale = AutoSyncState.isStale(this)
-        val age = AutoSyncState.minutesSinceLastSuccess(this)
+    private fun renderSummary(summary: PersonalSessionSummary) {
+        sessionStatus.text = "Ultima sessione completata"
+        sessionSummary.text = buildString {
+            appendLine("Durata  ${summary.durationMinutes} min")
+            appendLine("Battito medio  ${summary.heartRateAvg?.let { "$it bpm" } ?: "n/d"}")
+            appendLine("Intervallo  ${summary.heartRateMin?.let { "$it" } ?: "n/d"}–${summary.heartRateMax?.let { "$it bpm" } ?: "n/d"}")
+            appendLine("Intensità  ${summary.intensity}/5   Controllo  ${summary.control}/5")
+            append("Energia  ${summary.energy}/5   Benessere  ${summary.wellbeing}/5")
+        }
+        resultBadge.text = summary.status
+        val color = when (summary.status) {
+            "MIGLIORA" -> R.color.status_green
+            "ATTENZIONE" -> R.color.status_amber
+            else -> R.color.status_teal
+        }
+        resultBadge.setTextColor(ContextCompat.getColor(this, color))
+        startButton.isEnabled = true
+        endButton.isEnabled = false
+        analyzeButton.isEnabled = true
+    }
 
-        scheduleButton.text = if (autoSyncEnabled) "Stop Auto Sync" else "Start Auto Sync"
-        intervalSpinner.isEnabled = true
-
+    private fun refreshHealthStatus() {
         lifecycleScope.launch {
-            val healthAvailability = healthManager.availability()
-            val hasHealth = runCatching { healthManager.hasPermissions() }.getOrDefault(false)
-            val workerState = runCatching {
-                WorkManager.getInstance(this@MainActivity)
-                    .getWorkInfosForUniqueWorkFlow(SyncWorker.WORK_NAME)
-                    .first()
-                    .firstOrNull { !it.state.isFinished }
-                    ?.state
-            }.getOrNull()
-
-            statusText.text = buildString {
-                appendLine("Health Connect: ${healthStatusText(healthAvailability, hasHealth)}")
-                appendLine("Google Drive: ${if (hasDriveFile) "Existing file connected" else "Select existing file"}")
-                DriveClient.selectedFileInfo(this@MainActivity)?.let { info ->
-                    appendLine("Drive history: ${info.snapshotCount} snapshots")
-                    info.lastUpdated?.let { appendLine("Drive file last data: $it") }
-                }
-                appendLine("Primary wearable: Zepp/Amazfit")
-                appendLine("Auto Sync request: ${if (autoSyncEnabled) "Every ${intervalLabel(interval)} (best effort)" else "Off"}")
-                appendLine("Worker: ${workerState?.name ?: if (autoSyncEnabled) "Pending" else "Off"}")
-                val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-                appendLine("Battery optimization: ${if (powerManager.isIgnoringBatteryOptimizations(packageName)) "excluded" else "active"}")
-                if (autoSyncEnabled && stale) appendLine("Sync status: stale — recovery requested")
-                else if (autoSyncEnabled && age != null) appendLine("Sync status: OK · ${age} min ago")
-                AutoSyncState.lastSuccess(this@MainActivity)?.let { appendLine("Last success: $it") }
-                AutoSyncState.lastError(this@MainActivity)?.let { appendLine("Last error: $it") }
-                if (PendingDriveCache.hasPending(this@MainActivity)) appendLine("Pending local upload: yes")
-            }
-            diagnosticsText.text = buildString {
-                appendLine("Recent sync attempts")
-                append(SyncDiagnostics.summary(this@MainActivity))
-            }
+            val connected = runCatching { healthManager.hasPermissions() }.getOrDefault(false)
+            findViewById<TextView>(R.id.healthStatus).text =
+                if (connected) "● Health Connect collegato" else "○ Health Connect da collegare"
         }
     }
 
-    private fun intervalLabel(minutes: Long): String = when (minutes) {
-        60L -> "1 hour"
-        480L -> "8 hours"
-        else -> "$minutes minutes"
-    }
-
-    private fun sourceLabel(origin: String?): String = when (origin) {
-        PreferredHealthConnectManager.ZEPP_PACKAGE -> "Zepp/Amazfit"
-        null -> "Health Connect fallback"
-        else -> "Health Connect fallback"
-    }
-
-    private fun openHealthConnectInstall() {
-        updateStatus("Health Connect needs to be installed or updated. Opening Play Store...")
-        try {
-            startActivity(healthManager.installOrUpdateIntent())
-        } catch (e: ActivityNotFoundException) {
-            updateStatus("Open Play Store and install or update Health Connect, then try again.")
-        }
-    }
-
-    private fun openHealthConnectPermissions() {
-        try {
-            startActivity(healthManager.managePermissionsIntent())
-        } catch (e: ActivityNotFoundException) {
-            updateStatus(
-                "Open Health Connect settings manually:\n" +
-                    "Settings > Security & privacy > Privacy > Health Connect > App permissions > Health Sync"
-            )
-        }
-    }
-
-    private fun healthStatusText(
-        availability: HealthConnectManager.Availability,
-        hasPermissions: Boolean
-    ): String {
-        return when {
-            hasPermissions -> "Connected"
-            availability == HealthConnectManager.Availability.AVAILABLE -> "Tap button below"
-            availability == HealthConnectManager.Availability.INSTALL_OR_UPDATE_REQUIRED -> "Install or update required"
-            else -> "Unavailable on this phone"
-        }
-    }
-
-    private fun createDriveFileIntent(): Intent {
-        return Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "application/json"
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-            addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
-        }
-    }
-
-    private fun requestBatteryOptimizationExemption() {
-        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-        if (powerManager.isIgnoringBatteryOptimizations(packageName)) return
-
-        try {
-            startActivity(
-                Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                    data = Uri.parse("package:$packageName")
-                }
-            )
-        } catch (e: ActivityNotFoundException) {
-            startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-        }
-    }
-
-    companion object {
-        private const val RC_DRIVE_FILE = 100
-    }
+    private fun formatTime(instant: java.time.Instant): String =
+        ZonedDateTime.ofInstant(instant, ZoneId.systemDefault())
+            .format(DateTimeFormatter.ofPattern("HH:mm"))
 }
