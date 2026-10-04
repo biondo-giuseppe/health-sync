@@ -125,6 +125,56 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        recoverButton.setOnClickListener {
+            lifecycleScope.launch {
+                try {
+                    recoverButton.isEnabled = false
+                    sessionStatus.text = "Cerco l'ultima sessione senza battito…"
+
+                    if (!SessionBridge.isLinked(this@MainActivity)) {
+                        error("Prima collega Salute.")
+                    }
+                    if (!healthManager.hasPermissions()) {
+                        error("Prima collega Health Connect.")
+                    }
+
+                    val target = SessionBridge.findRecoverTarget(this@MainActivity)
+                    if (target == null) {
+                        sessionStatus.text = "Nessuna sessione recente da recuperare."
+                        return@launch
+                    }
+
+                    sessionStatus.text = "Leggo i dati cardiaci della sessione…"
+                    val heartRate = PersonalSessionStore.readHeartRateContext(
+                        this@MainActivity,
+                        target.startedAt,
+                        target.endedAt,
+                    )
+
+                    val hasAny = heartRate.session.samples > 0 ||
+                        heartRate.pre.samples > 0 ||
+                        heartRate.post.samples > 0
+
+                    if (!hasAny) {
+                        sessionStatus.text = "Nessun campione cardiaco trovato per quella finestra."
+                        return@launch
+                    }
+
+                    SessionBridge.sendHeartRateUpdate(this@MainActivity, target.id, heartRate)
+                    sessionStatus.text = "Dati cardiaci recuperati e associati alla sessione."
+                    sessionSummary.text = buildString {
+                        appendLine("Prima  " + (heartRate.pre.avg?.let { it.toString() + " bpm" } ?: "n/d"))
+                        appendLine("Sessione  " + (heartRate.session.avg?.let { it.toString() + " bpm" } ?: "n/d"))
+                        append("Dopo  " + (heartRate.post.avg?.let { it.toString() + " bpm" } ?: "n/d"))
+                    }
+                } catch (e: Exception) {
+                    sessionStatus.text = e.message ?: "Recupero non riuscito."
+                } finally {
+                    recoverButton.isEnabled = true
+                }
+            }
+        }
+
         startButton.setOnClickListener {
             lifecycleScope.launch {
                 if (!SessionBridge.isLinked(this@MainActivity)) {
