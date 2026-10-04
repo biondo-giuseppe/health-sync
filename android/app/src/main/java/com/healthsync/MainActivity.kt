@@ -18,7 +18,7 @@ import java.time.format.DateTimeFormatter
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var healthManager: PreferredHealthConnectManager
+    private lateinit var healthManager: PrivateHealthManager
     private lateinit var sessionStatus: TextView
     private lateinit var sessionSummary: TextView
     private lateinit var resultBadge: TextView
@@ -41,7 +41,9 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        healthManager = PreferredHealthConnectManager(this)
+        AutoSyncState.setEnabled(this, false)
+        SyncWorker.stop(this)
+        healthManager = PrivateHealthManager(this)
 
         sessionStatus = findViewById(R.id.sessionStatus)
         sessionSummary = findViewById(R.id.sessionSummary)
