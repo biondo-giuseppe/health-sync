@@ -84,6 +84,42 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/bg_status_panel"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:id="@+id/linkStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="○ Salute non collegata"
+                android:textColor="@color/muted_ink"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <EditText
+                android:id="@+id/pairingCode"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginTop="8dp"
+                android:hint="Codice a 6 cifre"
+                android:inputType="number"
+                android:maxLength="6"
+                android:singleLine="true" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnPair"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="Collega a Salute"
+                app:backgroundTint="@color/drive_blue" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
             android:background="@drawable/bg_status_panel"
             android:orientation="vertical"
@@ -237,20 +273,11 @@
                 android:layout_height="wrap_content" />
         </LinearLayout>
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnAnalyze"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="14dp"
-            android:enabled="false"
-            android:text="✦ Analizza"
-            app:backgroundTint="@color/teal_dark" />
-
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:text="Nessun riferimento esplicito viene mostrato o salvato nell’interfaccia."
+            android:layout_marginTop="12dp"
+            android:text="A fine sessione i dati vengono inviati automaticamente a Salute."
             android:textColor="@color/muted_ink"
             android:textSize="11sp" />
 
