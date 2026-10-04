@@ -1,12 +1,11 @@
 package com.healthsync
 
 import android.content.ActivityNotFoundException
-import android.content.Intent
 import android.os.Bundle
 import android.widget.Button
+import android.widget.EditText
 import android.widget.SeekBar
 import android.widget.TextView
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.health.connect.client.PermissionController
@@ -22,9 +21,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var sessionStatus: TextView
     private lateinit var sessionSummary: TextView
     private lateinit var resultBadge: TextView
+    private lateinit var linkStatus: TextView
+    private lateinit var pairingCode: EditText
+    private lateinit var pairButton: Button
     private lateinit var startButton: Button
     private lateinit var endButton: Button
-    private lateinit var analyzeButton: Button
     private lateinit var intensitySeek: SeekBar
     private lateinit var controlSeek: SeekBar
     private lateinit var energySeek: SeekBar
@@ -41,6 +42,7 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
         AutoSyncState.setEnabled(this, false)
         SyncWorker.stop(this)
         healthManager = PrivateHealthManager(this)
@@ -48,9 +50,11 @@ class MainActivity : AppCompatActivity() {
         sessionStatus = findViewById(R.id.sessionStatus)
         sessionSummary = findViewById(R.id.sessionSummary)
         resultBadge = findViewById(R.id.resultBadge)
+        linkStatus = findViewById(R.id.linkStatus)
+        pairingCode = findViewById(R.id.pairingCode)
+        pairButton = findViewById(R.id.btnPair)
         startButton = findViewById(R.id.btnStartSession)
         endButton = findViewById(R.id.btnEndSession)
-        analyzeButton = findViewById(R.id.btnAnalyze)
         intensitySeek = findViewById(R.id.seekIntensity)
         controlSeek = findViewById(R.id.seekControl)
         energySeek = findViewById(R.id.seekEnergy)
@@ -62,7 +66,7 @@ class MainActivity : AppCompatActivity() {
 
         val versionName = runCatching {
             packageManager.getPackageInfo(packageName, 0).versionName
-        }.getOrNull() ?: "1.2.0"
+        }.getOrNull() ?: "1.2.1"
         findViewById<TextView>(R.id.versionText).text = "Version $versionName"
 
         bindSeek(intensitySeek, intensityValue)
@@ -74,39 +78,72 @@ class MainActivity : AppCompatActivity() {
             lifecycleScope.launch {
                 when (healthManager.availability()) {
                     HealthConnectManager.Availability.AVAILABLE -> {
-                        if (!healthManager.hasPermissions()) healthPermissionLauncher.launch(healthManager.permissions)
-                        else refreshHealthStatus()
+                        if (!healthManager.hasPermissions()) {
+                            healthPermissionLauncher.launch(healthManager.permissions)
+                        } else {
+                            refreshHealthStatus()
+                        }
                     }
                     HealthConnectManager.Availability.INSTALL_OR_UPDATE_REQUIRED -> {
-                        try { startActivity(healthManager.installOrUpdateIntent()) }
-                        catch (_: ActivityNotFoundException) { sessionStatus.text = "Health Connect va installato o aggiornato." }
+                        try {
+                            startActivity(healthManager.installOrUpdateIntent())
+                        } catch (_: ActivityNotFoundException) {
+                            sessionStatus.text = "Health Connect va installato o aggiornato."
+                        }
                     }
-                    HealthConnectManager.Availability.UNAVAILABLE -> sessionStatus.text = "Health Connect non disponibile su questo telefono."
+                    HealthConnectManager.Availability.UNAVAILABLE -> {
+                        sessionStatus.text = "Health Connect non disponibile su questo telefono."
+                    }
+                }
+            }
+        }
+
+        pairButton.setOnClickListener {
+            val code = pairingCode.text?.toString()?.trim().orEmpty()
+            lifecycleScope.launch {
+                try {
+                    pairButton.isEnabled = false
+                    linkStatus.text = "Collegamento in corso…"
+                    SessionBridge.link(this@MainActivity, code)
+                    pairingCode.setText("")
+                    refreshLinkStatus()
+                    sessionStatus.text = "Salute collegata. Il telefono è pronto."
+                } catch (e: Exception) {
+                    linkStatus.text = "○ Salute non collegata"
+                    sessionStatus.text = e.message ?: "Collegamento non riuscito."
+                } finally {
+                    pairButton.isEnabled = true
                 }
             }
         }
 
         startButton.setOnClickListener {
             lifecycleScope.launch {
+                if (!SessionBridge.isLinked(this@MainActivity)) {
+                    sessionStatus.text = "Prima collega Salute con il codice a 6 cifre."
+                    return@launch
+                }
                 if (!healthManager.hasPermissions()) {
                     sessionStatus.text = "Prima collega Health Connect."
                     healthPermissionLauncher.launch(healthManager.permissions)
                     return@launch
                 }
+
                 val started = PersonalSessionStore.start(this@MainActivity)
                 sessionStatus.text = "Sessione attiva dalle ${formatTime(started)}"
                 resultBadge.text = "IN CORSO"
                 resultBadge.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.status_blue))
                 startButton.isEnabled = false
                 endButton.isEnabled = true
-                analyzeButton.isEnabled = false
             }
         }
 
         endButton.setOnClickListener {
             lifecycleScope.launch {
                 try {
-                    sessionStatus.text = "Sto leggendo i dati della sessione..."
+                    endButton.isEnabled = false
+                    sessionStatus.text = "Leggo i dati e aggiorno Salute…"
+
                     val summary = PersonalSessionStore.finish(
                         context = this@MainActivity,
                         intensity = score(intensitySeek),
@@ -114,30 +151,24 @@ class MainActivity : AppCompatActivity() {
                         energy = score(energySeek),
                         wellbeing = score(wellbeingSeek),
                     )
-                    renderSummary(summary)
+
+                    val remoteStatus = SessionBridge.send(this@MainActivity, summary)
+                    renderSummary(summary, remoteStatus)
+                    sessionStatus.text = "Sessione salvata in Salute"
                 } catch (e: Exception) {
-                    sessionStatus.text = "Impossibile chiudere la sessione: ${e.message ?: "errore"}"
+                    val last = PersonalSessionStore.lastSummary(this@MainActivity)
+                    if (last != null) renderSummary(last, null)
+                    sessionStatus.text = "Sessione conservata sul telefono. Invio non riuscito: ${e.message ?: "errore"}"
+                } finally {
+                    startButton.isEnabled = true
+                    endButton.isEnabled = false
+                    refreshLinkStatus()
                 }
             }
         }
 
-        analyzeButton.setOnClickListener {
-            val summary = PersonalSessionStore.lastSummary(this) ?: return@setOnClickListener
-            val payload = buildString {
-                appendLine("Analizza questa sessione personale in modo riservato.")
-                appendLine("Valuta andamento, eventuali pattern utili e suggerimenti pratici per benessere, controllo e durata.")
-                appendLine("Non formulare diagnosi mediche.")
-                appendLine()
-                append(PersonalSessionStore.shareText(summary))
-            }
-            val intent = Intent(Intent.ACTION_SEND).apply {
-                type = "text/plain"
-                putExtra(Intent.EXTRA_TEXT, payload)
-            }
-            startActivity(Intent.createChooser(intent, "Analizza"))
-        }
-
         refreshHealthStatus()
+        refreshLinkStatus()
         restoreSessionState()
     }
 
@@ -145,6 +176,7 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         if (::healthManager.isInitialized) {
             refreshHealthStatus()
+            refreshLinkStatus()
             restoreSessionState()
         }
     }
@@ -172,24 +204,29 @@ class MainActivity : AppCompatActivity() {
             resultBadge.setTextColor(ContextCompat.getColor(this, R.color.status_blue))
             startButton.isEnabled = false
             endButton.isEnabled = true
-            analyzeButton.isEnabled = false
         } else {
             startButton.isEnabled = true
             endButton.isEnabled = false
             val last = PersonalSessionStore.lastSummary(this)
-            if (last != null) renderSummary(last)
-            else {
+            if (last != null) {
+                renderSummary(last, null)
+            } else {
                 resultBadge.text = "PRONTO"
                 resultBadge.setTextColor(ContextCompat.getColor(this, R.color.teal_dark))
                 sessionStatus.text = "Pronto per una nuova sessione."
-                sessionSummary.text = "I dati restano locali finché non scegli Analizza."
-                analyzeButton.isEnabled = false
+                sessionSummary.text = "Durata e battito saranno letti automaticamente."
             }
         }
     }
 
-    private fun renderSummary(summary: PersonalSessionSummary) {
-        sessionStatus.text = "Ultima sessione completata"
+    private fun renderSummary(summary: PersonalSessionSummary, remoteStatus: String?) {
+        val displayStatus = when (remoteStatus) {
+            "improving" -> "MIGLIORA"
+            "attention" -> "ATTENZIONE"
+            "stable" -> "STABILE"
+            else -> summary.status
+        }
+
         sessionSummary.text = buildString {
             appendLine("Durata  ${summary.durationMinutes} min")
             appendLine("Battito medio  ${summary.heartRateAvg?.let { "$it bpm" } ?: "n/d"}")
@@ -197,16 +234,14 @@ class MainActivity : AppCompatActivity() {
             appendLine("Intensità  ${summary.intensity}/5   Controllo  ${summary.control}/5")
             append("Energia  ${summary.energy}/5   Benessere  ${summary.wellbeing}/5")
         }
-        resultBadge.text = summary.status
-        val color = when (summary.status) {
+
+        resultBadge.text = displayStatus
+        val color = when (displayStatus) {
             "MIGLIORA" -> R.color.status_green
             "ATTENZIONE" -> R.color.status_amber
             else -> R.color.status_teal
         }
         resultBadge.setTextColor(ContextCompat.getColor(this, color))
-        startButton.isEnabled = true
-        endButton.isEnabled = false
-        analyzeButton.isEnabled = true
     }
 
     private fun refreshHealthStatus() {
@@ -215,6 +250,14 @@ class MainActivity : AppCompatActivity() {
             findViewById<TextView>(R.id.healthStatus).text =
                 if (connected) "● Health Connect collegato" else "○ Health Connect da collegare"
         }
+    }
+
+    private fun refreshLinkStatus() {
+        val linked = SessionBridge.isLinked(this)
+        linkStatus.text = if (linked) "● Salute collegata" else "○ Salute non collegata"
+        pairingCode.isEnabled = !linked
+        pairButton.isEnabled = !linked
+        if (linked) pairingCode.hint = "Dispositivo collegato"
     }
 
     private fun formatTime(instant: java.time.Instant): String =
