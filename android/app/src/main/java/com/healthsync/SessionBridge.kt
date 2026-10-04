@@ -15,6 +15,12 @@ data class SessionSendResult(
     val status: String,
 )
 
+data class RecoverTarget(
+    val id: String,
+    val startedAt: java.time.Instant,
+    val endedAt: java.time.Instant,
+)
+
 object SessionBridge {
     private const val PREFS = "session_bridge"
     private const val KEY_LINK = "link_value"
