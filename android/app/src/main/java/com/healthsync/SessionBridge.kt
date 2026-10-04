@@ -10,12 +10,18 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.util.UUID
 
+data class SessionSendResult(
+    val id: String,
+    val status: String,
+)
+
 object SessionBridge {
     private const val PREFS = "session_bridge"
     private const val KEY_LINK = "link_value"
     private const val KEY_DEVICE = "device_id"
     private const val PAIR_URL = "https://kmxwmoagqwmitaripxrp.supabase.co/functions/v1/health-sync-direct"
     private const val SAVE_URL = "https://kmxwmoagqwmitaripxrp.supabase.co/functions/v1/private-session-ingest"
+    private const val HR_URL = "https://kmxwmoagqwmitaripxrp.supabase.co/functions/v1/private-session-heart-rate"
     private val http = OkHttpClient()
 
     fun isLinked(context: Context): Boolean =
@@ -54,7 +60,7 @@ object SessionBridge {
         }
     }
 
-    suspend fun send(context: Context, s: PersonalSessionSummary): String = withContext(Dispatchers.IO) {
+    suspend fun send(context: Context, s: PersonalSessionSummary): SessionSendResult = withContext(Dispatchers.IO) {
         val link = linkValue(context) ?: error("Collega prima il dispositivo")
         val json = JSONObject()
             .put("started_at", s.startedAt.toString())
@@ -74,14 +80,47 @@ object SessionBridge {
             .post(json.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
-        val response = http.newCall(request).execute()
-        response.use {
+        http.newCall(request).execute().use {
             val raw = it.body?.string().orEmpty()
             val result = runCatching { JSONObject(raw) }.getOrNull()
             if (!it.isSuccessful || result?.optBoolean("ok") != true) {
                 error(result?.optString("error")?.ifBlank { "Invio non riuscito" } ?: "Invio non riuscito")
             }
-            result.optString("status", "stable")
+            SessionSendResult(
+                id = result.getString("id"),
+                status = result.optString("status", "stable"),
+            )
+        }
+    }
+
+    suspend fun sendHeartRateUpdate(
+        context: Context,
+        sessionId: String,
+        heartRate: HeartRateSnapshot,
+    ) = withContext(Dispatchers.IO) {
+        val link = linkValue(context) ?: error("Collega prima il dispositivo")
+        require(heartRate.avg != null && heartRate.samples > 0) { "Nessun dato cardiaco disponibile" }
+
+        val json = JSONObject()
+            .put("session_id", sessionId)
+            .put("hr_avg_bpm", heartRate.avg)
+            .put("hr_samples", heartRate.samples)
+        heartRate.min?.let { json.put("hr_min_bpm", it) }
+        heartRate.max?.let { json.put("hr_max_bpm", it) }
+
+        val request = Request.Builder()
+            .url(HR_URL)
+            .addHeader("x-health-sync-key", link)
+            .post(json.toString().toRequestBody("application/json".toMediaType()))
+            .build()
+
+        http.newCall(request).execute().use {
+            val raw = it.body?.string().orEmpty()
+            val result = runCatching { JSONObject(raw) }.getOrNull()
+            if (!it.isSuccessful || result?.optBoolean("ok") != true) {
+                error(result?.optString("error")?.ifBlank { "Aggiornamento battito non riuscito" }
+                    ?: "Aggiornamento battito non riuscito")
+            }
         }
     }
 }
