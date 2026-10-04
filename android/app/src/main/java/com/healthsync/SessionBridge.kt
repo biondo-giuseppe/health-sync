@@ -100,6 +100,29 @@ object SessionBridge {
         }
     }
 
+    suspend fun findRecoverTarget(context: Context): RecoverTarget? = withContext(Dispatchers.IO) {
+        val link = linkValue(context) ?: error("Collega prima il dispositivo")
+        val request = Request.Builder()
+            .url(RECOVER_URL)
+            .addHeader("x-health-sync-key", link)
+            .post("{}".toRequestBody("application/json".toMediaType()))
+            .build()
+
+        http.newCall(request).execute().use {
+            val raw = it.body?.string().orEmpty()
+            val result = runCatching { JSONObject(raw) }.getOrNull()
+            if (!it.isSuccessful || result?.optBoolean("ok") != true) {
+                error(result?.optString("error")?.ifBlank { "Recupero non riuscito" } ?: "Recupero non riuscito")
+            }
+            val session = result.optJSONObject("session") ?: return@withContext null
+            RecoverTarget(
+                id = session.getString("id"),
+                startedAt = java.time.Instant.parse(session.getString("started_at")),
+                endedAt = java.time.Instant.parse(session.getString("ended_at")),
+            )
+        }
+    }
+
     suspend fun sendHeartRateUpdate(
         context: Context,
         sessionId: String,
