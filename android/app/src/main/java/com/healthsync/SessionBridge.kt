@@ -15,6 +15,12 @@ data class SessionSendResult(
     val status: String,
 )
 
+data class RecoverTarget(
+    val id: String,
+    val startedAt: java.time.Instant,
+    val endedAt: java.time.Instant,
+)
+
 object SessionBridge {
     private const val PREFS = "session_bridge"
     private const val KEY_LINK = "link_value"
@@ -22,6 +28,7 @@ object SessionBridge {
     private const val PAIR_URL = "https://kmxwmoagqwmitaripxrp.supabase.co/functions/v1/health-sync-direct"
     private const val SAVE_URL = "https://kmxwmoagqwmitaripxrp.supabase.co/functions/v1/private-session-ingest"
     private const val HR_URL = "https://kmxwmoagqwmitaripxrp.supabase.co/functions/v1/private-session-heart-rate"
+    private const val RECOVER_URL = "https://kmxwmoagqwmitaripxrp.supabase.co/functions/v1/private-session-recover-target"
     private val http = OkHttpClient()
 
     fun isLinked(context: Context): Boolean =
@@ -89,6 +96,29 @@ object SessionBridge {
             SessionSendResult(
                 id = result.getString("id"),
                 status = result.optString("status", "stable"),
+            )
+        }
+    }
+
+    suspend fun findRecoverTarget(context: Context): RecoverTarget? = withContext(Dispatchers.IO) {
+        val link = linkValue(context) ?: error("Collega prima il dispositivo")
+        val request = Request.Builder()
+            .url(RECOVER_URL)
+            .addHeader("x-health-sync-key", link)
+            .post("{}".toRequestBody("application/json".toMediaType()))
+            .build()
+
+        http.newCall(request).execute().use {
+            val raw = it.body?.string().orEmpty()
+            val result = runCatching { JSONObject(raw) }.getOrNull()
+            if (!it.isSuccessful || result?.optBoolean("ok") != true) {
+                error(result?.optString("error")?.ifBlank { "Recupero non riuscito" } ?: "Recupero non riuscito")
+            }
+            val session = result.optJSONObject("session") ?: return@withContext null
+            RecoverTarget(
+                id = session.getString("id"),
+                startedAt = java.time.Instant.parse(session.getString("started_at")),
+                endedAt = java.time.Instant.parse(session.getString("ended_at")),
             )
         }
     }

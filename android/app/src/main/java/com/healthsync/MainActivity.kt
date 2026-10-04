@@ -29,6 +29,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var startButton: Button
     private lateinit var endButton: Button
     private lateinit var saveButton: Button
+    private lateinit var recoverButton: Button
     private lateinit var feedbackContainer: LinearLayout
     private lateinit var intensitySeek: SeekBar
     private lateinit var controlSeek: SeekBar
@@ -60,6 +61,7 @@ class MainActivity : AppCompatActivity() {
         startButton = findViewById(R.id.btnStartSession)
         endButton = findViewById(R.id.btnEndSession)
         saveButton = findViewById(R.id.btnSaveSession)
+        recoverButton = findViewById(R.id.btnRecoverSession)
         feedbackContainer = findViewById(R.id.feedbackContainer)
         intensitySeek = findViewById(R.id.seekIntensity)
         controlSeek = findViewById(R.id.seekControl)
@@ -72,7 +74,7 @@ class MainActivity : AppCompatActivity() {
 
         val versionName = runCatching {
             packageManager.getPackageInfo(packageName, 0).versionName
-        }.getOrNull() ?: "1.2.3"
+        }.getOrNull() ?: "1.2.4"
         findViewById<TextView>(R.id.versionText).text = "Version $versionName"
 
         bindSeek(intensitySeek, intensityValue)
@@ -119,6 +121,56 @@ class MainActivity : AppCompatActivity() {
                     sessionStatus.text = e.message ?: "Collegamento non riuscito."
                 } finally {
                     refreshLinkStatus()
+                }
+            }
+        }
+
+        recoverButton.setOnClickListener {
+            lifecycleScope.launch {
+                try {
+                    recoverButton.isEnabled = false
+                    sessionStatus.text = "Cerco l'ultima sessione senza battito…"
+
+                    if (!SessionBridge.isLinked(this@MainActivity)) {
+                        error("Prima collega Salute.")
+                    }
+                    if (!healthManager.hasPermissions()) {
+                        error("Prima collega Health Connect.")
+                    }
+
+                    val target = SessionBridge.findRecoverTarget(this@MainActivity)
+                    if (target == null) {
+                        sessionStatus.text = "Nessuna sessione recente da recuperare."
+                        return@launch
+                    }
+
+                    sessionStatus.text = "Leggo i dati cardiaci della sessione…"
+                    val heartRate = PersonalSessionStore.readHeartRateContext(
+                        this@MainActivity,
+                        target.startedAt,
+                        target.endedAt,
+                    )
+
+                    val hasAny = heartRate.session.samples > 0 ||
+                        heartRate.pre.samples > 0 ||
+                        heartRate.post.samples > 0
+
+                    if (!hasAny) {
+                        sessionStatus.text = "Nessun campione cardiaco trovato per quella finestra."
+                        return@launch
+                    }
+
+                    SessionBridge.sendHeartRateUpdate(this@MainActivity, target.id, heartRate)
+                    sessionStatus.text = "Dati cardiaci recuperati e associati alla sessione."
+                    sessionSummary.text = buildString {
+                        appendLine("Prima  " + (heartRate.pre.avg?.let { it.toString() + " bpm" } ?: "n/d"))
+                        appendLine("Sessione  " + (heartRate.session.avg?.let { it.toString() + " bpm" } ?: "n/d"))
+                        append("Dopo  " + (heartRate.post.avg?.let { it.toString() + " bpm" } ?: "n/d"))
+                    }
+                } catch (e: Exception) {
+                    sessionStatus.text = e.message ?: "Recupero non riuscito."
+                } finally {
+                    recoverButton.isEnabled = true
                 }
             }
         }
@@ -174,14 +226,12 @@ class MainActivity : AppCompatActivity() {
                         wellbeing = score(wellbeingSeek),
                     )
                     val sent = SessionBridge.send(this@MainActivity, summary)
-                    if (summary.heartRateAvg == null || summary.heartRateSamples <= 0) {
-                        HeartRateRetryWorker.schedule(
-                            this@MainActivity,
-                            sent.id,
-                            summary.startedAt,
-                            summary.endedAt,
-                        )
-                    }
+                    HeartRateRetryWorker.schedule(
+                        this@MainActivity,
+                        sent.id,
+                        summary.startedAt,
+                        summary.endedAt,
+                    )
                     feedbackContainer.visibility = View.GONE
                     renderSummary(summary, sent.status)
                     sessionStatus.text =
