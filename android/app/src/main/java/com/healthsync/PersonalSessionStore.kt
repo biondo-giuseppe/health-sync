@@ -114,18 +114,18 @@ object PersonalSessionStore {
 
     fun shareText(summary: PersonalSessionSummary): String = buildString {
         appendLine("GIUSEPPE_SESSION")
-        appendLine("start=\${ZonedDateTime.ofInstant(summary.startedAt, java.time.ZoneId.systemDefault())}")
-        appendLine("end=\${ZonedDateTime.ofInstant(summary.endedAt, java.time.ZoneId.systemDefault())}")
-        appendLine("duration_min=\${summary.durationMinutes}")
-        appendLine("hr_avg=\${summary.heartRateAvg ?: "na"}")
-        appendLine("hr_min=\${summary.heartRateMin ?: "na"}")
-        appendLine("hr_max=\${summary.heartRateMax ?: "na"}")
-        appendLine("hr_samples=\${summary.heartRateSamples}")
-        appendLine("intensity=\${summary.intensity}/5")
-        appendLine("control=\${summary.control}/5")
-        appendLine("energy=\${summary.energy}/5")
-        appendLine("wellbeing=\${summary.wellbeing}/5")
-        appendLine("local_status=\${summary.status}")
+        appendLine("start=${ZonedDateTime.ofInstant(summary.startedAt, java.time.ZoneId.systemDefault())}")
+        appendLine("end=${ZonedDateTime.ofInstant(summary.endedAt, java.time.ZoneId.systemDefault())}")
+        appendLine("duration_min=${summary.durationMinutes}")
+        appendLine("hr_avg=${summary.heartRateAvg ?: "na"}")
+        appendLine("hr_min=${summary.heartRateMin ?: "na"}")
+        appendLine("hr_max=${summary.heartRateMax ?: "na"}")
+        appendLine("hr_samples=${summary.heartRateSamples}")
+        appendLine("intensity=${summary.intensity}/5")
+        appendLine("control=${summary.control}/5")
+        appendLine("energy=${summary.energy}/5")
+        appendLine("wellbeing=${summary.wellbeing}/5")
+        appendLine("local_status=${summary.status}")
     }
 
     private fun saveSummary(context: Context, s: PersonalSessionSummary) {
