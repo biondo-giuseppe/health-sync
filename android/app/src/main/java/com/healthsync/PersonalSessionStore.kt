@@ -18,6 +18,12 @@ data class HeartRateSnapshot(
     val samples: Int,
 )
 
+data class HeartRateContext(
+    val session: HeartRateSnapshot,
+    val pre: HeartRateSnapshot,
+    val post: HeartRateSnapshot,
+)
+
 data class PersonalSessionDraft(
     val startedAt: Instant,
     val endedAt: Instant,
@@ -182,6 +188,25 @@ object PersonalSessionStore {
         context: Context,
         start: Instant,
         end: Instant,
+    ): HeartRateSnapshot = readHeartRateWindow(context, start, end)
+
+    suspend fun readHeartRateContext(
+        context: Context,
+        start: Instant,
+        end: Instant,
+    ): HeartRateContext {
+        val marginSeconds = 120L
+        return HeartRateContext(
+            session = readHeartRateWindow(context, start, end),
+            pre = readHeartRateWindow(context, start.minusSeconds(marginSeconds), start),
+            post = readHeartRateWindow(context, end, end.plusSeconds(marginSeconds)),
+        )
+    }
+
+    private suspend fun readHeartRateWindow(
+        context: Context,
+        start: Instant,
+        end: Instant,
     ): HeartRateSnapshot {
         val client = HealthConnectClient.getOrCreate(context)
         val records = client.readRecords(
@@ -191,7 +216,11 @@ object PersonalSessionStore {
                 ascendingOrder = true,
             )
         ).records
-        val values = records.flatMap { record -> record.samples.map { it.beatsPerMinute.toInt() } }
+        val values = records.flatMap { record ->
+            record.samples
+                .filter { sample -> !sample.time.isBefore(start) && sample.time.isBefore(end) }
+                .map { it.beatsPerMinute.toInt() }
+        }
         if (values.isEmpty()) return HeartRateSnapshot(null, null, null, 0)
         return HeartRateSnapshot(
             avg = values.average().roundToInt(),
