@@ -165,6 +165,17 @@ object PersonalSessionStore {
             .edit().remove(KEY_PENDING_UPLOAD).apply()
     }
 
+    fun markPendingUpload(context: Context, s: PersonalSessionSummary) {
+        savePendingUpload(context, s)
+    }
+
+    fun retryCandidate(context: Context): PersonalSessionSummary? {
+        pendingUpload(context)?.let { return it }
+        val last = lastSummary(context) ?: return null
+        val ageMinutes = Duration.between(last.endedAt, Instant.now()).toMinutes()
+        return last.takeIf { ageMinutes in 0..1440 }
+    }
+
     private fun savePendingUpload(context: Context, s: PersonalSessionSummary) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putString(KEY_PENDING_UPLOAD, summaryJson(s)).apply()
