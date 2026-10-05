@@ -20,7 +20,7 @@ class SessionUploadRetryWorker(
 
         return try {
             val sent = SessionBridge.send(applicationContext, summary)
-            PersonalSessionStore.clearPendingUpload(applicationContext)
+            PersonalSessionStore.markUploaded(applicationContext, summary)
             HeartRateRetryWorker.schedule(
                 applicationContext,
                 sent.id,
