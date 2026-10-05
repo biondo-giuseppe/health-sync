@@ -164,6 +164,15 @@
             app:backgroundTint="@color/status_green" />
 
         <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnRetryUpload"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="↻ Riprova invio sessione"
+            android:visibility="gone"
+            app:backgroundTint="@color/status_amber" />
+
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnRecoverSession"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
