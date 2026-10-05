@@ -76,6 +76,7 @@ object SessionBridge {
     suspend fun send(context: Context, s: PersonalSessionSummary): SessionSendResult = withContext(Dispatchers.IO) {
         val link = linkValue(context) ?: error("Collega prima il dispositivo")
         val json = JSONObject()
+            .put("client_session_id", s.startedAt.toString())
             .put("started_at", s.startedAt.toString())
             .put("ended_at", s.endedAt.toString())
             .put("intensity", s.intensity)
