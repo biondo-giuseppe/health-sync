@@ -55,6 +55,7 @@ object PersonalSessionStore {
     private const val KEY_PENDING_DRAFT = "pending_draft"
     private const val KEY_LAST_SUMMARY = "last_summary"
     private const val KEY_PENDING_UPLOAD = "pending_upload"
+    private const val KEY_LAST_UPLOADED_START = "last_uploaded_start"
 
     fun activeStart(context: Context): Instant? {
         val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -169,9 +170,20 @@ object PersonalSessionStore {
         savePendingUpload(context, s)
     }
 
+    fun markUploaded(context: Context, s: PersonalSessionSummary) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_LAST_UPLOADED_START, s.startedAt.toString())
+            .remove(KEY_PENDING_UPLOAD)
+            .apply()
+    }
+
     fun retryCandidate(context: Context): PersonalSessionSummary? {
         pendingUpload(context)?.let { return it }
         val last = lastSummary(context) ?: return null
+        val uploadedStart = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_LAST_UPLOADED_START, null)
+        if (uploadedStart == last.startedAt.toString()) return null
         val ageMinutes = Duration.between(last.endedAt, Instant.now()).toMinutes()
         return last.takeIf { ageMinutes in 0..1440 }
     }
