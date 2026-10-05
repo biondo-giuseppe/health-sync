@@ -1,6 +1,6 @@
 name: Android CI
 
-# 1.1.7 diagnostic validation build
+# Health APK 1.2.5 reliable session build
 
 on:
   push:
@@ -11,7 +11,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout code
@@ -44,7 +44,7 @@ jobs:
       - name: Upload unsigned APK
         uses: actions/upload-artifact@v4
         with:
-          name: HealthSync-1.1.7-unsigned
+          name: HealthSync-1.2.5-unsigned
           path: android/app/build/outputs/apk/release/app-release-unsigned.apk
           retention-days: 3
 
