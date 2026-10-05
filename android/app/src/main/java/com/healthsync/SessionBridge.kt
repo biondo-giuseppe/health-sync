@@ -9,6 +9,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.util.UUID
+import java.util.concurrent.TimeUnit
 
 data class SessionSendResult(
     val id: String,
@@ -29,7 +30,12 @@ object SessionBridge {
     private const val SAVE_URL = "https://kmxwmoagqwmitaripxrp.supabase.co/functions/v1/private-session-ingest"
     private const val HR_URL = "https://kmxwmoagqwmitaripxrp.supabase.co/functions/v1/private-session-heart-rate"
     private const val RECOVER_URL = "https://kmxwmoagqwmitaripxrp.supabase.co/functions/v1/private-session-recover-target"
-    private val http = OkHttpClient()
+    private val http = OkHttpClient.Builder()
+        .connectTimeout(20, TimeUnit.SECONDS)
+        .readTimeout(45, TimeUnit.SECONDS)
+        .writeTimeout(45, TimeUnit.SECONDS)
+        .callTimeout(60, TimeUnit.SECONDS)
+        .build()
 
     fun isLinked(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).contains(KEY_LINK)
@@ -70,6 +76,7 @@ object SessionBridge {
     suspend fun send(context: Context, s: PersonalSessionSummary): SessionSendResult = withContext(Dispatchers.IO) {
         val link = linkValue(context) ?: error("Collega prima il dispositivo")
         val json = JSONObject()
+            .put("client_session_id", s.startedAt.toString())
             .put("started_at", s.startedAt.toString())
             .put("ended_at", s.endedAt.toString())
             .put("intensity", s.intensity)

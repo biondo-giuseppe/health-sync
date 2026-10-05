@@ -54,6 +54,8 @@ object PersonalSessionStore {
     private const val KEY_ACTIVE_START = "active_start"
     private const val KEY_PENDING_DRAFT = "pending_draft"
     private const val KEY_LAST_SUMMARY = "last_summary"
+    private const val KEY_PENDING_UPLOAD = "pending_upload"
+    private const val KEY_LAST_UPLOADED_START = "last_uploaded_start"
 
     fun activeStart(context: Context): Instant? {
         val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -137,6 +139,7 @@ object PersonalSessionStore {
             status = status,
         )
         saveSummary(context, summary)
+        savePendingUpload(context, summary)
         clearPendingDraft(context)
         return summary
     }
@@ -149,23 +152,45 @@ object PersonalSessionStore {
     fun lastSummary(context: Context): PersonalSessionSummary? {
         val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString(KEY_LAST_SUMMARY, null) ?: return null
-        return runCatching {
-            val j = JSONObject(raw)
-            PersonalSessionSummary(
-                startedAt = Instant.parse(j.getString("started_at")),
-                endedAt = Instant.parse(j.getString("ended_at")),
-                durationMinutes = j.getInt("duration_minutes"),
-                heartRateAvg = j.optIntOrNull("hr_avg"),
-                heartRateMin = j.optIntOrNull("hr_min"),
-                heartRateMax = j.optIntOrNull("hr_max"),
-                heartRateSamples = j.optInt("hr_samples", 0),
-                intensity = j.optInt("intensity", 3),
-                control = j.optInt("control", 3),
-                energy = j.optInt("energy", 3),
-                wellbeing = j.optInt("wellbeing", 3),
-                status = j.optString("status", "STABILE"),
-            )
-        }.getOrNull()
+        return parseSummary(raw)
+    }
+
+    fun pendingUpload(context: Context): PersonalSessionSummary? {
+        val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_PENDING_UPLOAD, null) ?: return null
+        return parseSummary(raw)
+    }
+
+    fun clearPendingUpload(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().remove(KEY_PENDING_UPLOAD).apply()
+    }
+
+    fun markPendingUpload(context: Context, s: PersonalSessionSummary) {
+        savePendingUpload(context, s)
+    }
+
+    fun markUploaded(context: Context, s: PersonalSessionSummary) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_LAST_UPLOADED_START, s.startedAt.toString())
+            .remove(KEY_PENDING_UPLOAD)
+            .apply()
+    }
+
+    fun retryCandidate(context: Context): PersonalSessionSummary? {
+        pendingUpload(context)?.let { return it }
+        val last = lastSummary(context) ?: return null
+        val uploadedStart = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_LAST_UPLOADED_START, null)
+        if (uploadedStart == last.startedAt.toString()) return null
+        val ageMinutes = Duration.between(last.endedAt, Instant.now()).toMinutes()
+        return last.takeIf { ageMinutes in 0..1440 }
+    }
+
+    private fun savePendingUpload(context: Context, s: PersonalSessionSummary) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putString(KEY_PENDING_UPLOAD, summaryJson(s)).apply()
     }
 
     fun shareText(summary: PersonalSessionSummary): String = buildString {
@@ -245,23 +270,42 @@ object PersonalSessionStore {
     }
 
     private fun saveSummary(context: Context, s: PersonalSessionSummary) {
-        val json = JSONObject().apply {
-            put("started_at", s.startedAt.toString())
-            put("ended_at", s.endedAt.toString())
-            put("duration_minutes", s.durationMinutes)
-            s.heartRateAvg?.let { put("hr_avg", it) }
-            s.heartRateMin?.let { put("hr_min", it) }
-            s.heartRateMax?.let { put("hr_max", it) }
-            put("hr_samples", s.heartRateSamples)
-            put("intensity", s.intensity)
-            put("control", s.control)
-            put("energy", s.energy)
-            put("wellbeing", s.wellbeing)
-            put("status", s.status)
-        }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putString(KEY_LAST_SUMMARY, json.toString()).apply()
+            .edit().putString(KEY_LAST_SUMMARY, summaryJson(s)).apply()
     }
+
+    private fun summaryJson(s: PersonalSessionSummary): String = JSONObject().apply {
+        put("started_at", s.startedAt.toString())
+        put("ended_at", s.endedAt.toString())
+        put("duration_minutes", s.durationMinutes)
+        s.heartRateAvg?.let { put("hr_avg", it) }
+        s.heartRateMin?.let { put("hr_min", it) }
+        s.heartRateMax?.let { put("hr_max", it) }
+        put("hr_samples", s.heartRateSamples)
+        put("intensity", s.intensity)
+        put("control", s.control)
+        put("energy", s.energy)
+        put("wellbeing", s.wellbeing)
+        put("status", s.status)
+    }.toString()
+
+    private fun parseSummary(raw: String): PersonalSessionSummary? = runCatching {
+        val j = JSONObject(raw)
+        PersonalSessionSummary(
+            startedAt = Instant.parse(j.getString("started_at")),
+            endedAt = Instant.parse(j.getString("ended_at")),
+            durationMinutes = j.getInt("duration_minutes"),
+            heartRateAvg = j.optIntOrNull("hr_avg"),
+            heartRateMin = j.optIntOrNull("hr_min"),
+            heartRateMax = j.optIntOrNull("hr_max"),
+            heartRateSamples = j.optInt("hr_samples", 0),
+            intensity = j.optInt("intensity", 3),
+            control = j.optInt("control", 3),
+            energy = j.optInt("energy", 3),
+            wellbeing = j.optInt("wellbeing", 3),
+            status = j.optString("status", "STABILE"),
+        )
+    }.getOrNull()
 
     private fun JSONObject.optIntOrNull(name: String): Int? =
         if (has(name) && !isNull(name)) optInt(name) else null

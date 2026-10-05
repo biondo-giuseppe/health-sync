@@ -30,6 +30,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var endButton: Button
     private lateinit var saveButton: Button
     private lateinit var recoverButton: Button
+    private lateinit var retryUploadButton: Button
     private lateinit var feedbackContainer: LinearLayout
     private lateinit var intensitySeek: SeekBar
     private lateinit var controlSeek: SeekBar
@@ -62,6 +63,7 @@ class MainActivity : AppCompatActivity() {
         endButton = findViewById(R.id.btnEndSession)
         saveButton = findViewById(R.id.btnSaveSession)
         recoverButton = findViewById(R.id.btnRecoverSession)
+        retryUploadButton = findViewById(R.id.btnRetryUpload)
         feedbackContainer = findViewById(R.id.feedbackContainer)
         intensitySeek = findViewById(R.id.seekIntensity)
         controlSeek = findViewById(R.id.seekControl)
@@ -175,6 +177,44 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        retryUploadButton.setOnClickListener {
+            lifecycleScope.launch {
+                val summary = PersonalSessionStore.retryCandidate(this@MainActivity)
+                if (summary == null) {
+                    retryUploadButton.visibility = View.GONE
+                    sessionStatus.text = "Nessuna sessione da reinviare."
+                    return@launch
+                }
+
+                try {
+                    retryUploadButton.isEnabled = false
+                    sessionStatus.text = "Riprovo a inviare la sessione…"
+                    PersonalSessionStore.markPendingUpload(this@MainActivity, summary)
+                    val sent = SessionBridge.send(this@MainActivity, summary)
+                    PersonalSessionStore.markUploaded(this@MainActivity, summary)
+                    HeartRateRetryWorker.schedule(
+                        this@MainActivity,
+                        sent.id,
+                        summary.startedAt,
+                        summary.endedAt,
+                    )
+                    renderSummary(summary, sent.status)
+                    sessionStatus.text =
+                        if (summary.heartRateAvg == null)
+                            "Sessione inviata. Battito in attesa di sincronizzazione."
+                        else
+                            "Sessione inviata in Salute."
+                    retryUploadButton.visibility = View.GONE
+                } catch (e: Exception) {
+                    PersonalSessionStore.markPendingUpload(this@MainActivity, summary)
+                    SessionUploadRetryWorker.schedule(this@MainActivity)
+                    sessionStatus.text = "Invio ancora non riuscito: ${e.message ?: "errore"}. Riproverò automaticamente."
+                    retryUploadButton.visibility = View.VISIBLE
+                } finally {
+                    retryUploadButton.isEnabled = true
+                }
+            }
+        }
         startButton.setOnClickListener {
             lifecycleScope.launch {
                 if (!SessionBridge.isLinked(this@MainActivity)) {
@@ -215,9 +255,8 @@ class MainActivity : AppCompatActivity() {
 
         saveButton.setOnClickListener {
             lifecycleScope.launch {
+                saveButton.isEnabled = false
                 try {
-                    saveButton.isEnabled = false
-                    sessionStatus.text = "Salvo la sessione in Salute…"
                     val summary = PersonalSessionStore.completeDraft(
                         context = this@MainActivity,
                         intensity = score(intensitySeek),
@@ -225,24 +264,37 @@ class MainActivity : AppCompatActivity() {
                         energy = score(energySeek),
                         wellbeing = score(wellbeingSeek),
                     )
-                    val sent = SessionBridge.send(this@MainActivity, summary)
-                    HeartRateRetryWorker.schedule(
-                        this@MainActivity,
-                        sent.id,
-                        summary.startedAt,
-                        summary.endedAt,
-                    )
+
                     feedbackContainer.visibility = View.GONE
-                    renderSummary(summary, sent.status)
-                    sessionStatus.text =
-                        if (summary.heartRateAvg == null)
-                            "Sessione salvata. Battito in attesa di sincronizzazione."
-                        else
-                            "Sessione salvata in Salute"
+                    renderSummary(summary, null)
                     startButton.isEnabled = true
                     endButton.isEnabled = false
+                    sessionStatus.text = "Sessione salvata sul telefono. Invio a Salute…"
+
+                    try {
+                        val sent = SessionBridge.send(this@MainActivity, summary)
+                        PersonalSessionStore.markUploaded(this@MainActivity, summary)
+                        HeartRateRetryWorker.schedule(
+                            this@MainActivity,
+                            sent.id,
+                            summary.startedAt,
+                            summary.endedAt,
+                        )
+                        renderSummary(summary, sent.status)
+                        sessionStatus.text =
+                            if (summary.heartRateAvg == null)
+                                "Sessione salvata. Battito in attesa di sincronizzazione."
+                            else
+                                "Sessione salvata in Salute"
+                        retryUploadButton.visibility = View.GONE
+                    } catch (e: Exception) {
+                        PersonalSessionStore.markPendingUpload(this@MainActivity, summary)
+                        SessionUploadRetryWorker.schedule(this@MainActivity)
+                        sessionStatus.text = "Sessione salvata sul telefono. Invio non riuscito: ${e.message ?: "errore"}. Riproverò automaticamente."
+                        retryUploadButton.visibility = View.VISIBLE
+                    }
                 } catch (e: Exception) {
-                    sessionStatus.text = "Salvataggio non riuscito: ${e.message ?: "errore"}"
+                    sessionStatus.text = "Salvataggio locale non riuscito: ${e.message ?: "errore"}"
                     saveButton.isEnabled = true
                 }
             }
@@ -285,6 +337,8 @@ class MainActivity : AppCompatActivity() {
     private fun restoreSessionState() {
         val active = PersonalSessionStore.activeStart(this)
         val pending = PersonalSessionStore.pendingDraft(this)
+        val retryCandidate = PersonalSessionStore.retryCandidate(this)
+        retryUploadButton.visibility = if (retryCandidate != null) View.VISIBLE else View.GONE
 
         when {
             active != null -> {
