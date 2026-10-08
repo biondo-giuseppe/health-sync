@@ -22,6 +22,12 @@ data class RecoverTarget(
     val endedAt: java.time.Instant,
 )
 
+data class HeartRateUpdateResult(
+    val pending: Boolean,
+    val attempts: Int,
+    val exhausted: Boolean,
+)
+
 object SessionBridge {
     private const val PREFS = "session_bridge"
     private const val KEY_LINK = "link_value"
@@ -134,24 +140,19 @@ object SessionBridge {
         context: Context,
         sessionId: String,
         heartRate: HeartRateContext,
-    ) = withContext(Dispatchers.IO) {
+    ): HeartRateUpdateResult = withContext(Dispatchers.IO) {
         val link = linkValue(context) ?: error("Collega prima il dispositivo")
-        val json = JSONObject().put("session_id", sessionId)
+        val json = JSONObject()
+            .put("session_id", sessionId)
+            .put("hr_samples", heartRate.session.samples)
+            .put("hr_pre_samples", heartRate.pre.samples)
+            .put("hr_post_samples", heartRate.post.samples)
 
-        if (heartRate.session.avg != null && heartRate.session.samples > 0) {
-            json.put("hr_avg_bpm", heartRate.session.avg)
-            json.put("hr_samples", heartRate.session.samples)
-            heartRate.session.min?.let { json.put("hr_min_bpm", it) }
-            heartRate.session.max?.let { json.put("hr_max_bpm", it) }
-        }
-        if (heartRate.pre.avg != null && heartRate.pre.samples > 0) {
-            json.put("hr_pre_avg_bpm", heartRate.pre.avg)
-            json.put("hr_pre_samples", heartRate.pre.samples)
-        }
-        if (heartRate.post.avg != null && heartRate.post.samples > 0) {
-            json.put("hr_post_avg_bpm", heartRate.post.avg)
-            json.put("hr_post_samples", heartRate.post.samples)
-        }
+        heartRate.session.avg?.let { json.put("hr_avg_bpm", it) }
+        heartRate.session.min?.let { json.put("hr_min_bpm", it) }
+        heartRate.session.max?.let { json.put("hr_max_bpm", it) }
+        heartRate.pre.avg?.let { json.put("hr_pre_avg_bpm", it) }
+        heartRate.post.avg?.let { json.put("hr_post_avg_bpm", it) }
 
         val request = Request.Builder()
             .url(HR_URL)
@@ -166,6 +167,11 @@ object SessionBridge {
                 error(result?.optString("error")?.ifBlank { "Aggiornamento battito non riuscito" }
                     ?: "Aggiornamento battito non riuscito")
             }
+            HeartRateUpdateResult(
+                pending = result.optBoolean("hr_pending", true),
+                attempts = result.optInt("hr_recovery_attempts", 0),
+                exhausted = result.optBoolean("hr_recovery_exhausted", false),
+            )
         }
     }
 }
