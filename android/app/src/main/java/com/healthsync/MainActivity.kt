@@ -51,6 +51,7 @@ class MainActivity : AppCompatActivity() {
 
         AutoSyncState.setEnabled(this, false)
         SyncWorker.stop(this)
+        PendingSessionRecoveryWorker.ensureScheduled(this)
         healthManager = PrivateHealthManager(this)
 
         sessionStatus = findViewById(R.id.sessionStatus)
@@ -117,7 +118,9 @@ class MainActivity : AppCompatActivity() {
                     SessionBridge.link(this@MainActivity, code)
                     pairingCode.setText("")
                     refreshLinkStatus()
-                    sessionStatus.text = "Salute collegata. Il telefono è pronto."
+                    PendingSessionRecoveryWorker.ensureScheduled(this@MainActivity)
+                    PendingSessionRecoveryWorker.runNow(this@MainActivity)
+                    sessionStatus.text = "Salute collegata. Recupero cardiaco automatico attivo."
                 } catch (e: Exception) {
                     linkStatus.text = "○ Salute non collegata"
                     sessionStatus.text = e.message ?: "Collegamento non riuscito."
@@ -303,6 +306,7 @@ class MainActivity : AppCompatActivity() {
         refreshHealthStatus()
         refreshLinkStatus()
         restoreSessionState()
+        PendingSessionRecoveryWorker.runNow(this)
     }
 
     override fun onResume() {
@@ -354,17 +358,12 @@ class MainActivity : AppCompatActivity() {
             }
             else -> {
                 feedbackContainer.visibility = View.GONE
-                startButton.isEnabled = true
+                startButton.isEnabled = false
                 endButton.isEnabled = false
-                val last = PersonalSessionStore.lastSummary(this)
-                if (last != null) {
-                    renderSummary(last, null)
-                } else {
-                    resultBadge.text = "PRONTO"
-                    resultBadge.setTextColor(ContextCompat.getColor(this, R.color.teal_dark))
-                    sessionStatus.text = "Pronto per una nuova sessione."
-                    sessionSummary.text = "Durata e battito saranno letti automaticamente."
-                }
+                resultBadge.text = "AUTOMATICO"
+                resultBadge.setTextColor(ContextCompat.getColor(this, R.color.teal_dark))
+                sessionStatus.text = "Gestisci le sessioni dall'app Salute."
+                sessionSummary.text = "Health Connect viene controllato in background e arricchisce automaticamente le sessioni concluse."
             }
         }
     }
