@@ -42,7 +42,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="Sessione personale"
+                android:text="Servizio Health Connect"
                 android:textColor="@color/muted_ink"
                 android:textSize="16sp" />
 
@@ -139,7 +139,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="10dp"
-                android:text="Pronto per una nuova sessione."
+                android:text="Recupero cardiaco automatico"
                 android:textColor="@color/ink"
                 android:textSize="20sp"
                 android:textStyle="bold" />
@@ -150,13 +150,14 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="10dp"
                 android:lineSpacingMultiplier="1.2"
-                android:text="I dati restano locali finché non scegli Analizza."
+                android:text="Le sessioni si gestiscono dall’app Salute. Questa app lavora in background."
                 android:textColor="@color/muted_ink"
                 android:textSize="15sp" />
         </LinearLayout>
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnStartSession"
+            android:visibility="gone"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="14dp"
@@ -177,11 +178,12 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="↻ Recupera ultima sessione"
+            android:text="↻ Controlla recupero ora"
             app:backgroundTint="@color/drive_blue" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnEndSession"
+            android:visibility="gone"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
