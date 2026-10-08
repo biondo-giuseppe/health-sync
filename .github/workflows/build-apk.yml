@@ -1,6 +1,6 @@
 name: Android CI
 
-# Health APK 1.2.5 reliable session build
+# Health APK 1.3.0 unified session/background HR build
 
 on:
   push:
@@ -44,7 +44,7 @@ jobs:
       - name: Upload unsigned APK
         uses: actions/upload-artifact@v4
         with:
-          name: HealthSync-1.2.5-unsigned
+          name: HealthSync-1.3.0-unsigned
           path: android/app/build/outputs/apk/release/app-release-unsigned.apk
           retention-days: 3
 
