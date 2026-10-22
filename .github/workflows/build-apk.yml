@@ -1,4 +1,5 @@
 name: Android CI
+# build trigger for HealthSync 1.1.4
 
 # Health APK 1.3.0 unified session/background HR build
 
