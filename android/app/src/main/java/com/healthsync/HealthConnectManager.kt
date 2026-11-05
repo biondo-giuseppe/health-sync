@@ -28,6 +28,12 @@ data class HealthSnapshot(
     val steps: Long?,
     val caloriesActive: Long?,
     val caloriesTotal: Long?,
+    val weightKg: Double?,
+    val nutritionCalories: Long?,
+    val nutritionProteinGrams: Double?,
+    val nutritionCarbsGrams: Double?,
+    val nutritionFatGrams: Double?,
+    val nutritionMealsCount: Int,
     val heartRateAvg: Int?,
     val heartRateResting: Int?,
     val distanceMeters: Long?,
@@ -77,6 +83,7 @@ class HealthConnectManager(private val context: Context) {
         HeartRateVariabilityRmssdRecord::class,
         HeightRecord::class,
         LeanBodyMassRecord::class,
+        NutritionRecord::class,
         OxygenSaturationRecord::class,
         RespiratoryRateRecord::class,
         RestingHeartRateRecord::class,
@@ -101,6 +108,8 @@ class HealthConnectManager(private val context: Context) {
         HealthPermission.getReadPermission(TotalCaloriesBurnedRecord::class),
         HealthPermission.getReadPermission(DistanceRecord::class),
         HealthPermission.getReadPermission(SleepSessionRecord::class),
+        HealthPermission.getReadPermission(WeightRecord::class),
+        HealthPermission.getReadPermission(NutritionRecord::class),
     )
 
     fun availability(): Availability {
@@ -162,6 +171,8 @@ class HealthConnectManager(private val context: Context) {
         val sleep = readOptional { readSleep(sleepRange) }
         val hrv = readOptional { readHrvStats(sleepRange) }
         val summary = readOptional { readDailySummary(todayRange) }
+        val weight = readOptional { readLatestWeight(exportRange) }
+        val nutrition = readOptional { readNutrition(todayRange) }
         val selectedRawTypes = supportedRecordTypes.filter {
             rawRecordTypeNames == null || it.java.simpleName in rawRecordTypeNames
         }
@@ -179,6 +190,12 @@ class HealthConnectManager(private val context: Context) {
             steps = summary?.steps,
             caloriesActive = summary?.caloriesActive,
             caloriesTotal = summary?.caloriesTotal,
+            weightKg = weight,
+            nutritionCalories = nutrition?.calories,
+            nutritionProteinGrams = nutrition?.proteinGrams,
+            nutritionCarbsGrams = nutrition?.carbsGrams,
+            nutritionFatGrams = nutrition?.fatGrams,
+            nutritionMealsCount = nutrition?.mealCount ?: 0,
             heartRateAvg = summary?.heartRateAvg,
             heartRateResting = summary?.heartRateResting,
             distanceMeters = summary?.distanceMeters,
@@ -205,6 +222,41 @@ class HealthConnectManager(private val context: Context) {
             zeppStepsLatestEndAt = null,
             rawRecords = export.records,
             extractionErrors = export.errors
+        )
+    }
+
+    data class NutritionSummary(
+        val calories: Long,
+        val proteinGrams: Double,
+        val carbsGrams: Double,
+        val fatGrams: Double,
+        val mealCount: Int,
+    )
+
+    private suspend fun readLatestWeight(range: TimeRangeFilter): Double? =
+        client.readRecords(
+            ReadRecordsRequest(
+                recordType = WeightRecord::class,
+                timeRangeFilter = range,
+                ascendingOrder = false,
+                pageSize = 1,
+            )
+        ).records.firstOrNull()?.weight?.inKilograms
+
+    private suspend fun readNutrition(range: TimeRangeFilter): NutritionSummary {
+        val records = client.readRecords(
+            ReadRecordsRequest(
+                recordType = NutritionRecord::class,
+                timeRangeFilter = range,
+                ascendingOrder = true,
+            )
+        ).records
+        return NutritionSummary(
+            calories = records.sumOf { it.energy?.inKilocalories ?: 0.0 }.toLong(),
+            proteinGrams = roundOneDecimal(records.sumOf { it.protein?.inGrams ?: 0.0 }),
+            carbsGrams = roundOneDecimal(records.sumOf { it.totalCarbohydrate?.inGrams ?: 0.0 }),
+            fatGrams = roundOneDecimal(records.sumOf { it.totalFat?.inGrams ?: 0.0 }),
+            mealCount = records.size,
         )
     }
 
