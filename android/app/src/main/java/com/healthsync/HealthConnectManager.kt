@@ -153,8 +153,8 @@ class HealthConnectManager(private val context: Context) {
             now
         )
 
-        val sleep = readOptional { readSleep(sleepRange) }
-        val hrv = readOptional { readHrvStats(sleepRange) }
+        val sleep: SleepData? = null
+        val hrv: HrvStats? = null
         val summary = readOptional { readDailySummary(todayRange) }
         val weight = readOptional { readLatestWeight(exportRange) }
         val nutrition = readOptional { readNutrition(todayRange) }
@@ -271,7 +271,7 @@ class HealthConnectManager(private val context: Context) {
 
     private suspend fun readDailySummary(range: TimeRangeFilter): DailySummary {
         val allSourcesResult = aggregateDailyMetrics(range, emptySet())
-        val selectedOrigin = chooseSummaryOrigin(range, allSourcesResult.dataOrigins)
+        val selectedOrigin: String? = null
         val result = if (selectedOrigin != null) {
             aggregateDailyMetrics(range, setOf(DataOrigin(selectedOrigin)))
         } else {
@@ -313,14 +313,8 @@ class HealthConnectManager(private val context: Context) {
     ) = client.aggregate(
             AggregateRequest(
                 metrics = setOf(
-                    StepsRecord.COUNT_TOTAL,
                     ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL,
                     TotalCaloriesBurnedRecord.ENERGY_TOTAL,
-                    HeartRateRecord.BPM_AVG,
-                    RestingHeartRateRecord.BPM_AVG,
-                    DistanceRecord.DISTANCE_TOTAL,
-                    ExerciseSessionRecord.EXERCISE_DURATION_TOTAL,
-                    SleepSessionRecord.SLEEP_DURATION_TOTAL,
                 ),
                 timeRangeFilter = range,
                 dataOriginFilter = dataOrigins,
