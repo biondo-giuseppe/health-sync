@@ -7,6 +7,7 @@ object SyncPayload {
         "BodyFatRecord",
         "LeanBodyMassRecord",
         "BodyWaterMassRecord",
+        "NutritionRecord",
     )
 
     fun compactForBackground(snapshot: HealthSnapshot): HealthSnapshot {
