@@ -40,20 +40,9 @@ class PreferredHealthConnectManager(private val context: Context) {
         BodyFatRecord::class,
         BodyWaterMassRecord::class,
         BoneMassRecord::class,
-        DistanceRecord::class,
-        ExerciseSessionRecord::class,
-        HeartRateRecord::class,
-        HeartRateVariabilityRmssdRecord::class,
-        HeightRecord::class,
         LeanBodyMassRecord::class,
         NutritionRecord::class,
-        OxygenSaturationRecord::class,
-        RespiratoryRateRecord::class,
-        RestingHeartRateRecord::class,
-        SleepSessionRecord::class,
-        StepsRecord::class,
         TotalCaloriesBurnedRecord::class,
-        Vo2MaxRecord::class,
         WeightRecord::class,
     )
 
@@ -63,12 +52,8 @@ class PreferredHealthConnectManager(private val context: Context) {
     )
 
     private val requiredPermissions = setOf(
-        HealthPermission.getReadPermission(StepsRecord::class),
-        HealthPermission.getReadPermission(HeartRateRecord::class),
         HealthPermission.getReadPermission(ActiveCaloriesBurnedRecord::class),
         HealthPermission.getReadPermission(TotalCaloriesBurnedRecord::class),
-        HealthPermission.getReadPermission(DistanceRecord::class),
-        HealthPermission.getReadPermission(SleepSessionRecord::class),
         HealthPermission.getReadPermission(WeightRecord::class),
         HealthPermission.getReadPermission(NutritionRecord::class),
     )
@@ -243,11 +228,11 @@ class PreferredHealthConnectManager(private val context: Context) {
         const val ZEPP_PACKAGE = "com.huami.watch.hmwatchmanager"
         private const val BACKGROUND_EXPORT_DAYS = 7L
         private val BACKGROUND_RAW_RECORD_TYPES = setOf(
-            "ExerciseSessionRecord",
             "WeightRecord",
             "BodyFatRecord",
             "LeanBodyMassRecord",
             "BodyWaterMassRecord",
+            "BoneMassRecord",
             "NutritionRecord",
         )
     }
