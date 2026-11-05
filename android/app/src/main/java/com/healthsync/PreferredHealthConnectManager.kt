@@ -13,6 +13,7 @@ import androidx.health.connect.client.records.HeartRateRecord
 import androidx.health.connect.client.records.HeartRateVariabilityRmssdRecord
 import androidx.health.connect.client.records.HeightRecord
 import androidx.health.connect.client.records.LeanBodyMassRecord
+import androidx.health.connect.client.records.NutritionRecord
 import androidx.health.connect.client.records.OxygenSaturationRecord
 import androidx.health.connect.client.records.RespiratoryRateRecord
 import androidx.health.connect.client.records.RestingHeartRateRecord
@@ -45,6 +46,7 @@ class PreferredHealthConnectManager(private val context: Context) {
         HeartRateVariabilityRmssdRecord::class,
         HeightRecord::class,
         LeanBodyMassRecord::class,
+        NutritionRecord::class,
         OxygenSaturationRecord::class,
         RespiratoryRateRecord::class,
         RestingHeartRateRecord::class,
@@ -67,6 +69,8 @@ class PreferredHealthConnectManager(private val context: Context) {
         HealthPermission.getReadPermission(TotalCaloriesBurnedRecord::class),
         HealthPermission.getReadPermission(DistanceRecord::class),
         HealthPermission.getReadPermission(SleepSessionRecord::class),
+        HealthPermission.getReadPermission(WeightRecord::class),
+        HealthPermission.getReadPermission(NutritionRecord::class),
     )
 
     fun availability() = delegate.availability()
@@ -244,6 +248,7 @@ class PreferredHealthConnectManager(private val context: Context) {
             "BodyFatRecord",
             "LeanBodyMassRecord",
             "BodyWaterMassRecord",
+            "NutritionRecord",
         )
     }
 }
