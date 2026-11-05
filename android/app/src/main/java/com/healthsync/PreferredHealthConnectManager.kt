@@ -81,23 +81,8 @@ class PreferredHealthConnectManager(private val context: Context) {
         val range = TimeRangeFilter.between(LocalDate.now().atStartOfDay(zone).toInstant(), now)
         val sleepRange = TimeRangeFilter.between(now.minusSeconds(86400), now)
 
-        val zepp = runCatching {
-            client.aggregate(
-                AggregateRequest(
-                    metrics = setOf(
-                        StepsRecord.COUNT_TOTAL,
-                        ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL,
-                        TotalCaloriesBurnedRecord.ENERGY_TOTAL,
-                        HeartRateRecord.BPM_AVG,
-                        RestingHeartRateRecord.BPM_AVG,
-                        DistanceRecord.DISTANCE_TOTAL,
-                        ExerciseSessionRecord.EXERCISE_DURATION_TOTAL,
-                    ),
-                    timeRangeFilter = range,
-                    dataOriginFilter = setOf(DataOrigin(ZEPP_PACKAGE)),
-                )
-            )
-        }.getOrNull()
+        // Do not require Zepp steps or unrelated metrics for nutrition sync.
+        val zepp: androidx.health.connect.client.response.AggregationResult? = null
 
         val usefulNames = usefulRecordTypes.map { it.java.simpleName }.toSet()
         val common = baseline.copy(
