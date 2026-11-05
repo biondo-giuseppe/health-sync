@@ -38,7 +38,7 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Health Sync"
+                android:text="Health Food"
                 android:textColor="@color/ink"
                 android:textSize="32sp"
                 android:textStyle="bold" />
@@ -47,7 +47,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="Health Connect to Google Drive"
+                android:text="Peso, calorie e alimentazione"
                 android:textColor="@color/muted_ink"
                 android:textSize="15sp" />
 
@@ -70,7 +70,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:background="@drawable/bg_chip"
-                    android:text="Zepp preferred"
+                    android:text="Peso + calorie"
                     android:textColor="@color/teal_dark"
                     android:textSize="12sp"
                     android:textStyle="bold" />
@@ -80,7 +80,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginStart="8dp"
                     android:background="@drawable/bg_chip"
-                    android:text="Private export"
+                    android:text="Nutrizione + macro"
                     android:textColor="@color/teal_dark"
                     android:textSize="12sp"
                     android:textStyle="bold" />
@@ -121,7 +121,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="18dp"
-            android:text="Requested Auto Sync interval"
+            android:text="Aggiornamento automatico"
             android:textColor="@color/ink"
             android:textSize="14sp"
             android:textStyle="bold" />
